@@ -195,3 +195,89 @@ For the full checks run `python -m compileall -q src tests` and
 regression had 88 passed tests before this RTL recovery fix; rerun it after
 pulling the latest changes. Validate the text order against a representative
 real Persian PDF; see `docs/IMPLEMENTATION_PROGRESS.md`.
+
+
+## Stage 4: Token-aware chunking and bounded hierarchical summaries
+
+Stage 4 implements TextChunkingService and LongTextSummarizationService
+without new HTTP endpoints, persistence, third-party dependencies or changes
+to the extractors. Both use @inject and constructor DI. Resolve services
+after bootstrap_di() rather than creating dependencies manually:
+
+~~~python
+import asyncio
+from src.infrastructure.di.bootstrap import bootstrap_di
+from src.infrastructure.di.inject import resolve
+from src.core.services.summarization.long_text_summarization_service import LongTextSummarizationService
+
+bootstrap_di()
+service = resolve(LongTextSummarizationService)
+summary = asyncio.run(service.summarize_async("متن فارسی برای خلاصه سازی", "medium"))
+print(summary)
+~~~
+
+### Input and resource limits
+
+- A model call must meet **both limits**: at most **1,000 encoded input
+  tokens including tokenizer-added specials**, and **20,000 characters**
+  under current configuration. These are configured inference safeguards,
+  not the measured network context capacity. No task prefix is used.
+  Counting through the pinned tokenizer initializes tokenizer assets only,
+  not the approximately 1.2 GB model weights.
+- Chunking folds CRLF/CR to LF, collapses horizontal whitespace runs,
+  reduces 3+ consecutive newlines to two, and strips document edges.
+  Every character of the **normalized** text appears in source order
+  across chunks. Original indentation/spaces are not byte-preserved.
+  Paragraph, line, sentence and word boundaries are preferred; a long
+  unpunctuated word can be split at a character boundary if necessary.
+  Every resulting chunk is validated with the exact mT5 tokenizer.
+- Operational budgets: **200,000 normalized source characters**,
+  **64 chunks**, **6 hierarchy levels** and **128 model calls**. These
+  conservative bounds are CPU service limits, not model specifications.
+  A level summarizes chunks sequentially, joins summaries in source
+  order and continues until one valid final-model input is available.
+  No sufficient reduction (at least 5% fewer characters), exhausted
+  work budget, empty output, or excessive final output yields an explicit
+  typed error rather than a truncated or partial answer.
+- Generation budgets for short, medium, long are **ceil(1/3)**,
+  **ceil(2/3)** and **100%** of configured model.max_output_tokens:
+  currently **40**, **80**, **120**. This bound is the Transformers
+  generation max_length (decoder sequence tokens, including specials),
+  **not a word or character count**. The final decoded/re-encoded output
+  is independently checked against the requested token budget and
+  rejected if it exceeds it.
+- summarize_async and worker-thread tokenization/chunking do not block
+  the ASGI event loop while executing inference. The provider retains a
+  per-process, sequential inference lock and one model instance. Task
+  cancellation does not forcibly interrupt a running model call in
+  a worker thread; no partial output is returned.
+
+Hierarchical summarization may discard more semantic detail than a
+single model pass. Chunking guarantees normalized source coverage **before**
+summarization, not preservation of every original fact in the result.
+
+### Stage 4 tests and optional real-model smoke
+
+Unit tests rely on fake tokenizers/providers and **never download weights**:
+
+~~~powershell
+$env:env_type = "development"
+python -m compileall -q src tests
+python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_summarization_service.py tests/test_mt5_stage4_provider.py
+python -m pytest -q
+~~~
+
+Explicit opt-in real CPU smoke:
+
+~~~powershell
+python -m src.infrastructure.ml.smoke_mt5_long_text
+~~~
+
+The smoke uses generated Persian text and multiple potentially slow
+model inferences. Weights are reused from the Hugging Face cache if
+present; otherwise the pinned checkpoint downloads. Allow several GB
+free disk space and approximately 8 GB available RAM as an unmeasured
+CPU planning estimate. Keep this smoke outside the default pytest suite.
+It checks the final summary is nonempty and within the encoded-token
+output budget. Local isolated Stage 4 mock tests are not a substitute
+for the full Windows/Python 3.12.10 regression and real-model smoke.

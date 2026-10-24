@@ -7,14 +7,14 @@
 | 1. Project Setup, DI & FastAPI | Completed |
 | 2. mT5 Model Integration | Completed |
 | 3. Document Extraction | Completed |
-| 4. Chunking & Long Text Summarization | Not Started |
+| 4. Chunking & Long Text Summarization | In Progress |
 | 5. Main SummarizationService | Not Started |
 | 6. REST API & Upload Validation | Not Started |
 | 7. Testing, Security & Optimization | Not Started |
 | 8. Docker & Final Delivery | Not Started |
 
 - Last completed stage: **3**
-- Active stage: **None (Stage 4 is next, Not Started)**
+- Active stage: **4 (In Progress; implementation and isolated unit tests complete, Windows regression and real mT5 smoke pending)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -431,3 +431,113 @@ python -m pytest -q
   hierarchical summarization only upon a separate Stage 4 request.
 - Completion documentation commit SHA is available from GitHub history;
   the SHA of a commit cannot be embedded in its own tree contents.
+
+
+## Stage 4 — Token-aware Chunking and Hierarchical Summarization (2026-10-24)
+
+- **Status: In Progress.** Implementation is committed on main and 47 new
+  mocked unit tests passed in an isolated local Python 3.13 environment.
+  Final acceptance is pending full-repository and real-model verification
+  on the actual commit, preferably Windows/Python 3.12.10.
+- Baseline verified at Stage 4 start:
+  f4cf5f8201234ad43243ec361f162b29c86fff3a. Main branch write access
+  confirmed. Latest implementation/documentation commits are in GitHub
+  history; the SHA of this progress-tracking commit cannot appear in its
+  own file content.
+- Created: src/core/services/summarization/text_chunking_service.py;
+  src/core/services/summarization/long_text_summarization_service.py;
+  src/infrastructure/ml/smoke_mt5_long_text.py;
+  tests/test_text_chunking_service.py;
+  tests/test_long_text_summarization_service.py;
+  tests/test_mt5_stage4_provider.py.
+- Updated: src/infrastructure/ml/mt5_model_provider.py (public, safe
+  tokenizer-only input counter; configurable per-call generation max);
+  README.md; docs/IMPLEMENTATION_PROGRESS.md.
+- New third-party dependencies: **none**. Base and development model
+  configurations unchanged. Model checkpoint/revision stays pinned to
+  nafisehNik/mt5-persian-summary at
+  b575560ad967050e77a40f907abb1ebbeefb9a15. Existing lazy model
+  initialization, DI singleton, inference lock and async thread offloading
+  remain intact.
+- Provider contracts: count_input_tokens(text: str) -> int counts
+  configured tokenizer input IDs including specials after provider-style
+  edge trim, initializing tokenizer without weights; read-only public
+  max_input_tokens, max_input_characters and max_output_tokens properties;
+  summarize(text, *, max_output_tokens=None) and summarize_async with the
+  same optional keyword, preserving existing one-argument calls.
+- TextChunkingService constructor injects Mt5ModelProvider. Public
+  normalize(text), fits(text), and chunk(text) implement exact
+  tokenizer-derived chunk validation. Chunk concatenation reconstructs
+  normalized text, never silently discarding document tails. Normalization
+  folds newline styles, collapses horizontal whitespace, reduces 3+ newlines
+  to two and trims outer whitespace; original whitespace is not
+  character-for-character preserved. Paragraph/sentence/word boundaries
+  preferred; forced character splits permitted if required. Empty, invalid
+  and over-budget text produce typed errors.
+- LongTextSummarizationService injects TextChunkingService and
+  Mt5ModelProvider. summarize_async(text, summary_length='medium')
+  maps, combines in source order, recursively reduces, validates each
+  model input, and performs final generation within the requested budget.
+  output_token_budget maps short: 40; medium: 80; long: 120 given the
+  existing config max_output_tokens=120. These are Transformers decoder
+  max_length ceilings, not character/word counts; the output is checked
+  again by re-encoding with the tokenizer. No blind substring slicing
+  is used.
+- Operational controls: at most 200,000 normalized document characters,
+  64 chunks per chunking pass, 6 hierarchy levels, 128 model calls per
+  request. Require at least 5% character reduction for each map/reduce
+  iteration; insufficient progress, resource exhaustion or model errors
+  fail explicitly. These are conservative application budgets, not the
+  checkpoint's published maximum capacity. Model calls are sequential
+  within a request and provider inference is serialized per process;
+  tokenization and inference are dispatched to worker threads in the
+  async service. Cancellation cannot preempt an already-running model
+  call in a thread.
+- Quality caveat: hierarchical summaries can omit semantic details
+  despite complete source coverage by chunking. PDF extraction's
+  previously documented RTL/font/glyph limitations remain unchanged.
+
+### Stage 4 Test Commands and Results
+
+Source-only Linux/Python 3.13.5 isolated workspace with the Stage 4
+source/tests and a reconstructed subset of baseline DI/config components:
+
+~~~bash
+python -m compileall -q src tests
+python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_summarization_service.py tests/test_mt5_stage4_provider.py
+~~~
+
+- Compile: **Passed**.
+- Stage 4 tests: **47 passed, 0 failed**. Coverage includes tokenizer
+  specials, exact boundary/overflow, Persian ZWNJ, long unpunctuated
+  input, mixed scripts/numerals, normalization, chunk order/full
+  normalized coverage/tail retention, char and chunk count limits,
+  hierarchy direct/multistage paths, requested length tiers,
+  empty/error outputs, no-progress/depth/call limits, non-blocking async
+  execution, constructor DI graph and lazy tokenizer-only loading.
+- GitHub uploaded blob SHAs for the two core services, all three test
+  files and the long-text smoke script were checked against Git blob
+  hashes of their locally verified source files; they match.
+  Provider was modified against GitHub's existing file using targeted
+  substitutions rather than copied from the isolated local variant.
+- **Not Run** in this environment: full 93-case Stage 1–3 regression
+  against the final GitHub checkout; tests on Windows/Python 3.12.10;
+  real pinned-checkpoint CPU smoke; live Uvicorn health on the new HEAD;
+  production performance or memory measurements. No model weights were
+  downloaded. Do not conflate the prior 93 passing Windows tests on
+  Stage 3 with verification of this Stage 4 revision.
+- Known non-blocking issues: conservative hierarchy may reject long,
+  uncompressible text; some generated text can expand when re-encoded
+  and trigger a typed output-limit error; a CPU run may take substantial
+  time and RAM. A non-blocking Starlette deprecation warning appeared
+  in the prior Windows Stage 3 suite.
+
+### Stage 4 Remaining Acceptance and Stage 5 Readiness
+
+- Run pip check, compile, new Stage 4 tests, all regression tests and
+  opt-in real smoke on Windows after git pull --ff-only origin main.
+  Confirm nonempty generated Persian summary, acceptable token length,
+  and no new regression failures. Stage 4 must stay **In Progress**
+  until those acceptance checks succeed, or their environment blockers
+  are explicitly accepted. The implementation is ready for verification;
+  Stage 5 should start only after Stage 4 final acceptance.

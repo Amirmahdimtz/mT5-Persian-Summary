@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+import unicodedata
 from io import BytesIO
 from pathlib import Path
 from zipfile import BadZipFile, LargeZipFile, ZipFile
@@ -112,11 +114,12 @@ class DocumentExtractionService:
             for page in reader.pages:
                 if "/Contents" not in page:
                     continue  # Valid blank pages need not have a content stream.
-                # Default plain extraction can reverse Persian letter order.
-                # Include rotated text rather than silently dropping it.
+                # PDF generators differ between logical and visual RTL order.
+                # Keep rotated content and correct only strong RTL evidence.
                 text = page.extract_text(
                     extraction_mode="layout", layout_mode_strip_rotated=False
                 ) or ""
+                text = self._restore_visual_rtl_text(text)
                 total_characters += len(text)
                 if total_characters > self.MAX_TEXT_CHARACTERS:
                     raise DocumentLimitError("extracted text exceeds the character limit")
@@ -173,6 +176,73 @@ class DocumentExtractionService:
                         raise CorruptedDocumentError("encrypted DOCX ZIP members are unsupported")
         except (BadZipFile, LargeZipFile) as error:
             raise CorruptedDocumentError("DOCX ZIP structure is invalid") from error
+
+    # Frequent Persian function words and unambiguous vocabulary provide a
+    # conservative signal of readable order without model inference.
+    _PERSIAN_WORDS = frozenset(
+        {
+            "از", "است", "این", "آن", "با", "برای", "به", "تا", "در",
+            "را", "شد", "شود", "که", "می", "نیز", "هم", "و", "یک",
+            "اگر", "اما", "های", "ها", "متن", "فارسی", "سند", "نمونه",
+            "سلام", "صفحه", "سال", "داده", "هوش", "مصنوعی",
+        }
+    )
+
+    @classmethod
+    def _restore_visual_rtl_text(cls, text: str) -> str:
+        """Repair clearly visual-order Persian PDF output without blind reversal.
+
+        Some PDF producers store RTL glyphs in visual order. pypdf's layout
+        mode exposes that visual order (e.g. 'یسراف نتم'), while other PDFs
+        already return correct logical-order Unicode. Leave ambiguous pages
+        unchanged rather than silently corrupt a correctly encoded PDF.
+        """
+        if not any(unicodedata.bidirectional(ch) in ("AL", "R") for ch in text):
+            return text
+
+        choices: list[tuple[str, str, int, int]] = []
+        for line in text.split("\n"):
+            tokens = line.split()
+            rtl = sum(unicodedata.bidirectional(ch) in ("AL", "R") for ch in line)
+            latin = sum(unicodedata.bidirectional(ch) == "L" for ch in line)
+            candidate = (
+                " ".join(cls._restore_visual_token(token) for token in reversed(tokens))
+                if rtl and rtl >= latin
+                else line
+            )
+            choices.append(
+                (
+                    line,
+                    candidate,
+                    cls._persian_word_score(line),
+                    cls._persian_word_score(candidate),
+                )
+            )
+        # A document can mix logical and visual-order lines. Honor the
+        # per-line evidence first; use the page majority for ambiguous lines.
+        visual_page = sum(new - old for _, _, old, new in choices) >= 2
+        return "\n".join(
+            candidate if new >= old + 2 or (visual_page and new >= old) else original
+            for original, candidate, old, new in choices
+        )
+
+    @classmethod
+    def _persian_word_score(cls, text: str) -> int:
+        words = re.findall(r"[\u0600-\u06ff\u200c]+", text)
+        return sum(word in cls._PERSIAN_WORDS for word in words)
+
+    @staticmethod
+    def _restore_visual_token(token: str) -> str:
+        """Reverse RTL grapheme clusters, keeping standalone numeric/LTR tokens."""
+        if not any(unicodedata.bidirectional(ch) in ("AL", "R") for ch in token):
+            return token
+        graphemes: list[str] = []
+        for char in token:
+            if unicodedata.combining(char) and graphemes:
+                graphemes[-1] += char
+            else:
+                graphemes.append(char)
+        return "".join(reversed(graphemes))
 
     @classmethod
     def _content_text(cls, item: Paragraph | Table) -> str:

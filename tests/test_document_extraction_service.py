@@ -155,6 +155,35 @@ def test_pdf_multiple_pages_and_blank_middle(extractor: DocumentExtractionServic
     assert actual == "صفحه اول\n\nصفحه سوم"
 
 
+def test_pdf_visual_order_persian_title(extractor: DocumentExtractionService) -> None:
+    # Visual glyph order, as emitted by some embedded-font PDF generators.
+    assert extractor.extract_pdf(pdf_with_text("یسراف نتم • هنومن دنس")) == "سند نمونه • متن فارسی"
+
+
+def test_pdf_visual_order_persian_mixed_digits(extractor: DocumentExtractionService) -> None:
+    # Visual-order RTL words, but digits in the PDF remain in logical order.
+    visual = "2026 و ۱۴۰۵ لاس رد .تسا یلدم نیا"
+    assert extractor.extract_pdf(pdf_with_text(visual)) == "این مدلی است. در سال ۱۴۰۵ و 2026"
+
+
+def test_pdf_mixed_visual_and_logical_lines(extractor: DocumentExtractionService) -> None:
+    original = "یسراف نتم • هنومن دنس\nاین یک متن فارسی برای آزمون است"
+    expected = "سند نمونه • متن فارسی\nاین یک متن فارسی برای آزمون است"
+    assert extractor._restore_visual_rtl_text(original) == expected
+
+
+def test_pdf_multipage_visual_and_logical(extractor: DocumentExtractionService) -> None:
+    visual = "یسراف نتم • هنومن دنس"
+    logical = "این یک متن فارسی برای آزمون است"
+    assert extractor.extract_pdf(pdf_with_text(visual, logical)) == (
+        "سند نمونه • متن فارسی\n\nاین یک متن فارسی برای آزمون است"
+    )
+
+
+def test_pdf_visual_order_english_unchanged(extractor: DocumentExtractionService) -> None:
+    assert extractor.extract_pdf(pdf_with_text("Hello 2026")) == "Hello 2026"
+
+
 def test_pdf_english_text(extractor: DocumentExtractionService) -> None:
     assert extractor.extract_pdf(pdf_with_text("English text")) == "English text"
 

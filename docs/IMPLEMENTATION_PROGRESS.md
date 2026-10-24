@@ -14,7 +14,7 @@
 | 8. Docker & Final Delivery | Not Started |
 
 - Last completed stage: **2**
-- Active stage: **3 (In Progress — automated Windows regression passed; real embedded-font Persian PDF and post-fix live HTTP smoke pending)**
+- Active stage: **3 (In Progress — Persian PDF RTL recovery awaiting Windows verification; live HTTP smoke pending)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -280,3 +280,54 @@ python -m pytest -q
 - Next step: perform a real embedded-font Persian PDF extraction
   through `DocumentExtractionService` and recheck live HTTP health;
   record results, then mark Stage 3 Completed if acceptable.
+
+## Stage 3 Follow-up — Real Persian PDF RTL Extraction (2026-10-24)
+
+- Evidence: user-selected real text-layer PDF at a local Windows Downloads path
+  was opened successfully through `DocumentExtractionService.extract(...)`;
+  **1,896 characters** were returned, but text order was incorrect.
+  Examples: `یسراف نتم` instead of `متن فارسی`,
+  `یعونصم شوه` instead of `هوش مصنوعی`, and
+  `هنومن دنس` instead of `سند نمونه`.
+  The filename and absolute user path are intentionally not committed.
+- Root cause: PDF generators can store Persian glyphs in visual rather than
+  logical order. The existing pypdf `layout` extractor exposed visual order.
+  pypdf `plain` can fix some RTL words but has different risks with
+  mixed scripts, numbers and separators; a global mode replacement is unsafe.
+- Scope-limited code fix: for extracted PDF text, build visual-to-logical
+  candidate lines by reversing token order and RTL grapheme clusters while
+  preserving standalone numbers and Latin tokens. A conservative score of
+  common Persian words chooses corrections only with positive linguistic
+  evidence, and prioritizes per-line evidence to avoid reversing already
+  logical lines. No OCR, model calls, HTTP types or new dependencies added.
+  TXT/DOCX, constructor DI and Stage 1/2 source remain unchanged.
+- Known limitation: PDF RTL restoration is heuristic, not a full Unicode
+  bidirectional layout reconstruction. Very short ambiguous text, arbitrary
+  mixed-direction inline spans, unusual ligatures/fonts and malformed
+  ToUnicode maps may still be inaccurate; compare against real documents.
+- Added five PDF regression tests: visual-order Persian heading,
+  visual-order RTL with Persian/Latin numbers, mixed-order lines,
+  mixed-order pages and unchanged English extraction.
+- Isolated Linux/Python **3.13.5** validation with **pypdf 5.9.0**,
+  **python-docx 1.2.0** and an isolated ML-provider stub:
+  `python -m compileall -q src tests` **Passed**;
+  `python -m pytest -q tests/test_document_extraction_service.py`
+  **57 passed, 0 failed**;
+  three smoke cases **3 passed, 54 deselected**.
+  Additionally, an in-memory PDF generated using WeasyPrint and a real
+  Persian-capable embedded font reproduced backwards `layout` output
+  before the fix. After the fix, extraction verified correct
+  `سند نمونه • متن فارسی`, `آشنایی کوتاه با هوش مصنوعی` and
+  `سال ۱۴۰۵ و 2026` without losing the Persian or Latin numbers.
+  The WeasyPrint-only fixture/dependency is **not** committed.
+- **Not Run:** complete post-change 93-case repository regression on Windows,
+  compatibility of this change against user's installed pypdf 6.21.2,
+  re-extraction of the user's exact PDF, and live Uvicorn health smoke.
+  Previous Windows `88 passed` result belongs to the prior commit only.
+- Changed files: `src/core/services/summarization/document_extraction_service.py`,
+  `tests/test_document_extraction_service.py`, `README.md`, and
+  `docs/IMPLEMENTATION_PROGRESS.md`.
+- **Stage 3: In Progress.** Retest the user's original PDF after pulling
+  latest `main`, run all tests, verify live HTTP health; only then reassess
+  completion and Stage 4 readiness.
+- Documentation: https://pypdf.readthedocs.io/en/stable/modules/PageObject.html .

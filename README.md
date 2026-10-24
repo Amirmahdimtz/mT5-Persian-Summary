@@ -154,9 +154,14 @@ print(text)
 ```
 
 TXT requires UTF-8 with or without a BOM; invalid UTF-8 or binary control
-characters fail explicitly. PDF extraction uses pypdf's layout mode to avoid
-reversing Persian text in the default plain mode, preserves page order and
-includes rotated text. Image-only/empty PDFs return `NoExtractableTextError`,
+characters fail explicitly. PDF extraction uses pypdf's layout mode with
+conservative Persian RTL visual-order recovery: some PDF generators store
+visually ordered glyphs, while others already provide logical-order Unicode.
+The extractor compares common Persian word patterns line by line and avoids
+blindly reversing all text. Numbers and standalone Latin tokens are preserved
+in the tested cases. This is a heuristic, **not a universal guarantee** for
+mixed-direction layouts or PDFs with broken font mappings. Page order and
+rotated text are retained. Image-only/empty PDFs return `NoExtractableTextError`,
 not OCR. Encrypted PDFs return `PasswordProtectedPdfError`. DOCX extraction
 uses python-docx 1.2's `iter_inner_content()` for document-order paragraphs
 and tables, including nested tables. Legacy `.doc` is unsupported. Headers,
@@ -186,6 +191,7 @@ embedded Persian font; this checks the parser contract but cannot establish
 accuracy across arbitrary third-party PDFs.
 
 For the full checks run `python -m compileall -q src tests` and
-`python -m pytest -q`. Stage 3 verification of the newly constrained pypdf
-version and existing Stage 1/2 regressions is pending on the target Windows
-environment; see `docs/IMPLEMENTATION_PROGRESS.md`.
+`python -m pytest -q`. The previously reported Windows/Python 3.12.10
+regression had 88 passed tests before this RTL recovery fix; rerun it after
+pulling the latest changes. Validate the text order against a representative
+real Persian PDF; see `docs/IMPLEMENTATION_PROGRESS.md`.

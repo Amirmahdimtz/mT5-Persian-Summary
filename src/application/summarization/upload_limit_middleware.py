@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections.abc import Callable
 from tempfile import SpooledTemporaryFile
 from typing import Any
@@ -59,7 +60,7 @@ class UploadBodyLimitMiddleware:
         if idle_timeout_seconds <= 0 or admission_wait_seconds <= 0:
             raise ValueError("upload timeouts must be positive")
         self.app = app
-        self._active = asyncio.Semaphore(max_active_requests)
+        self._active = threading.BoundedSemaphore(max_active_requests)
         self._idle_timeout_seconds = idle_timeout_seconds
         self._admission_wait_seconds = admission_wait_seconds
         self._paths = {
@@ -86,19 +87,22 @@ class UploadBodyLimitMiddleware:
             )(scope, receive, send)
             return
 
-        try:
-            await asyncio.wait_for(
-                self._active.acquire(), timeout=self._admission_wait_seconds
-            )
-        except TimeoutError:
-            await JSONResponse(
-                status_code=503,
-                content={"detail": {
-                    "code": "UploadCapacityExceeded",
-                    "message": "Upload capacity is temporarily unavailable.",
-                }},
-            )(scope, receive, send)
-            return
+        # The admission capacity is process-wide, including multiple ASGI
+        # event loops; non-blocking polling never parks a worker thread.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._admission_wait_seconds
+        while not self._active.acquire(blocking=False):
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                await JSONResponse(
+                    status_code=503,
+                    content={"detail": {
+                        "code": "UploadCapacityExceeded",
+                        "message": "Upload capacity is temporarily unavailable.",
+                    }},
+                )(scope, receive, send)
+                return
+            await asyncio.sleep(min(0.02, remaining))
 
         try:
             with SpooledTemporaryFile(max_size=ASGI_MEMORY_SPOOL_BYTES) as spool:

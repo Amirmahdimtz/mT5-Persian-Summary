@@ -14,7 +14,7 @@
 | 8. Docker & Final Delivery | Not Started |
 
 - Last completed stage: **2**
-- Active stage: **3 (In Progress — Persian PDF RTL recovery awaiting Windows verification; live HTTP smoke pending)**
+- Active stage: **3 (In Progress — Windows RTL verification passed with known font/glyph limitations; live HTTP smoke pending)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -331,3 +331,53 @@ python -m pytest -q
   latest `main`, run all tests, verify live HTTP health; only then reassess
   completion and Stage 4 readiness.
 - Documentation: https://pypdf.readthedocs.io/en/stable/modules/PageObject.html .
+
+## Stage 3 Follow-up — Windows RTL Fix Validated with Real PDF (2026-10-24)
+
+- Evidence: user-supplied Windows PowerShell output after fast-forward
+  checkout of `faf02694a405b5b512fd206a28df1f3b422b377d`
+  (`fix: recover visual-order Persian text from PDFs`).
+- Environment: Windows PowerShell, project `.venv`, Python 3.12.10;
+  dependencies `pypdf 6.21.2` and `python-docx 1.2.0` verified
+  on the same machine during the prior dependency installation.
+- `python -m compileall -q src tests`: **Passed**, no reported errors.
+- `python -m pytest -q tests/test_document_extraction_service.py`:
+  **57 passed, 0 failed**, 18.74 seconds.
+- `python -m pytest -q` (complete repository regression):
+  **93 passed, 0 failed**, 1 non-blocking `StarletteDeprecationWarning`,
+  19.04 seconds. All retained Stage 1/2 tests also passed.
+- Real Persian text PDF: user ran
+  `DocumentExtractionService().extract(p.read_bytes(), p.name)`
+  successfully, producing **1,136 extracted characters** on this
+  commit, compared with 1,896 reported prior to the RTL fix.
+  Correct logical-order examples now include
+  `سند نمونه • متن فارسی`, `آشنایی کوتاه با هوش مصنوعی`,
+  `هوش مصنوعی چه کاربردهایی دارد؟`, and readable Persian paragraphs.
+  The difference in character counts is observed but not fully
+  explained or independently verified as lossless; some original
+  lines had very large amounts of PDF layout whitespace.
+- Important **known quality limitation**: this same real-world PDF
+  still includes text/glyph anomalies such as `سالمت` versus
+  `سلامت`, `اطالعات` versus `اطلاعات`, `مسئوالنه` versus
+  `مسئولانه`, and absent joining/spacing in some words. These may
+  arise from ToUnicode/font maps, PDF shaping, the heuristic or a
+  combination; no unsupported root-cause assertion is made.
+  Stage 3 guarantees extraction of usable text from text-layer PDFs,
+  **not lossless full-fidelity reconstruction for every PDF**.
+- The real PDF is stored only on the user's local machine;
+  its bytes were not uploaded or committed. Automatic tests verify
+  synthetic cases separately; the real sample is validated by
+  inspecting the user's pasted output.
+- **Not Run on this commit:** live Uvicorn GET /api/v1/health smoke
+  outside TestClient (automated health tests pass). A specific
+  fidelity regression test against the original user PDF is not
+  possible until the file itself is available in a safe test fixture.
+- Technical decision: no additional parser dependency or
+  speculative global text-normalization patch; retain known
+  font-specific fidelity issues for targeted follow-up/quality work.
+- Changed file in this follow-up: `docs/IMPLEMENTATION_PROGRESS.md`
+  only; no changes to model, DI, extraction implementation, or
+  dependency constraints.
+- **Stage 3 status: In Progress**, pending the agreed independent
+  live health smoke and final assessment of the font-specific PDF
+  fidelity limitations. Stage 4 code not started.

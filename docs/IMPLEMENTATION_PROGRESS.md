@@ -18,7 +18,8 @@
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
-- Stage 1 commit: recorded in GitHub history under `feat: initialize FastAPI architecture and dependency injection`. The exact final SHA is reported in the delivery and can be obtained with `git rev-parse HEAD`.
+- Stage 1 implementation commit: `d38c353e0d9776ed5f2b9ebecd75017ea7fb5f82` (`feat: initialize FastAPI architecture and dependency injection`).
+- To check the latest branch head, run `git rev-parse HEAD`.
 
 ## Stage 1 — Changed Files
 

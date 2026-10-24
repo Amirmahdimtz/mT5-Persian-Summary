@@ -8,13 +8,13 @@
 | 2. mT5 Model Integration | Completed |
 | 3. Document Extraction | Completed |
 | 4. Chunking & Long Text Summarization | Completed |
-| 5. Main SummarizationService | Not Started |
+| 5. Main SummarizationService | Completed |
 | 6. REST API & Upload Validation | Not Started |
 | 7. Testing, Security & Optimization | Not Started |
 | 8. Docker & Final Delivery | Not Started |
 
-- Last completed stage: **4**
-- Active stage: **None (Stage 5 is next, Not Started)**
+- Last completed stage: **5**
+- Active stage: **None (Stage 6 is next, Not Started)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -603,8 +603,8 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
 
 ## Stage 5 — Main SummarizationService & Multi-Document Orchestration (2026-10-24)
 
-- **Status: In Progress** (implementation committed; complete-checkout
-  regression and Windows acceptance must be run before marking Completed).
+- **Status: Completed** (final Windows/Python 3.12.10 acceptance verified
+  from the user's run logs on 2026-10-24; see acceptance record below).
 - **Starting HEAD:** af10d02b798b1fe8ae43e5526f51204e834c70f1.
   Repo owner Amirmahdimtz; main; GitHub connector confirmed push permission,
   current branch head and unprotected status before implementation.
@@ -649,7 +649,7 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
   orchestration, typed parser/model/resource errors, duplicate filenames,
   partial/all failures, error-message redaction, cancellation, sequential
   inference, event-loop responsiveness and collection mutation.
-- **Not Run in current environment:** Stage 5 tests against the *entire*
+- **Historical pre-Windows verification (superseded below):** Stage 5 tests against the *entire*
   latest repository checkout, complete Stage 1–5 pytest regression on
   Windows/Python 3.12.10, bootstrap_di/resolve on a real Stage 5 checkout,
   real-parser Stage 5 integration and real-model Stage 5 smoke.
@@ -667,6 +667,75 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
 - **Commit message:** feat: implement main summarization service and multi-file orchestration.
   Commit SHA is obtainable from GitHub history; it cannot be embedded in
   the same commit's tracked progress file.
-- **Stage 6 readiness:** new Python business API is implemented, but Stage 5
-  final acceptance and full Windows regression remain pending.
-  Do not mark Stage 5 Completed until these have been verified.
+- **Stage 6 readiness:** Ready. Final Windows/Python 3.12.10 acceptance is
+  recorded below; Stage 6 may add the HTTP DTO/controller/upload boundaries.
+
+
+## Stage 5 Final Acceptance — Windows Python 3.12.10 (2026-10-24)
+
+- **Stage status: Completed.** User-supplied PowerShell verification was run
+  from the project root on a clean working tree with the project-local
+  .venv and env_type=development. git pull --ff-only origin main advanced
+  af10d02..d3ac76d; git rev-parse HEAD confirmed
+  d3ac76daf5de4a139e1e09265002eb92effbe1fe.
+  The implementation commit was:
+  "feat: implement main summarization service and multi-file orchestration".
+  No Stage 5 source, test, provider, DI, configuration or dependency changes
+  were needed for this documentation-only acceptance follow-up.
+- **Environment:** Windows PowerShell, Python 3.12.10, project .venv.
+  Requirements were already satisfied; python -m pip check reported
+  "No broken requirements found." before and after dependency installation.
+- **Passed — compile and DI:** python -m compileall -q src tests,
+  Stage 5 public-contract import, bootstrap_di() and
+  resolve(SummarizationService). All completed without error.
+- **Passed — Stage 5 tests:**
+  python -m pytest -q tests/test_summarization_service.py
+  => **60 passed in 10.55s; 0 failed**.
+- **Passed — full regression:**
+  python -m pytest -q
+  => **200 passed, 1 warning in 28.98s; 0 failed**.
+  This includes the prior 140 Stage 1–4 tests and 60 Stage 5 tests.
+  The single non-blocking StarletteDeprecationWarning originates in the
+  third-party fastapi.testclient httpx/starlette compatibility layer.
+- **Passed — real-parser integration:**
+  python -m pytest -q -s tests/test_document_extraction_service.py -k smoke_
+  => **3 passed, 54 deselected in 9.10s**.
+  The three smoke cases printed extracted Persian TXT, text-PDF and DOCX.
+  An earlier malformed selector invocation (-k smoke_.) was interrupted
+  by KeyboardInterrupt while importing pytest; this was not a test
+  assertion failure and the corrected invocation passed.
+- **Passed — real mT5 multi-file orchestration functional smoke:** with
+  bootstrap_di()/resolve(SummarizationService), a UTF-8 TXT plus invalid
+  PDF were submitted as DocumentInput in a single batch with length short.
+  Results: valid.txt => success=True, summary=".", error_code=None;
+  invalid.pdf => success=False, summary=None,
+  error_code="InvalidDocumentError". Assertions for one success,
+  one failure and nonempty successful summary completed.
+  This establishes actual provider/extractor integration and per-file
+  isolation on the pinned model, **not useful summary quality**:
+  a single punctuation mark is not a meaningful Persian summary.
+- **Passed — live HTTP health:** Uvicorn started with
+  python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001;
+  GET /api/v1/health returned **HTTP 200 OK**.
+  Stage 6 summarization endpoints remain intentionally absent.
+- **Failed automated tests:** 0 among completed runs.
+- **Not Run:** quantitative/qualitative model evaluation on representative
+  Persian documents, production RAM/latency and multi-request load tests,
+  OCR, and Stage 6 upload/API endpoints (not implemented).
+- **Known issues:** model output can be technically nonempty while
+  semantically useless ("." in this real smoke). Do not treat this smoke
+  as proof of summary quality; establish quality checks and diagnostics
+  during Stage 7 and evaluate representative real documents.
+  Existing PDF RTL/font reconstruction limitations remain.
+  Cancellation cannot forcibly stop an already-running worker thread;
+  upload-stream/body limits belong at Stage 6/7 ingress.
+  The observed StarletteDeprecationWarning is non-blocking.
+- **Acceptance decision:** Stage 5 business orchestration, bounded
+  sequential multi-file processing, typed partial success, auto-discovery,
+  actual model invocation, and all requested functional verification
+  criteria are satisfied. **Stage 5 Completed; Stage 6 Ready.**
+  Quality benchmarking is a follow-up, not a claim of Stage 5 success
+  in semantic accuracy.
+- **Acceptance commit message:** docs: confirm stage 5 Windows acceptance and stage 6 readiness.
+  The acceptance SHA is visible in GitHub history (it cannot be embedded
+  into its own commit contents).

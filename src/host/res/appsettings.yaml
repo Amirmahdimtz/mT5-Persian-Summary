@@ -6,3 +6,14 @@ server:
   port: 8000
 api:
   prefix: "/api/v1"
+model:
+  id: "nafisehNik/mt5-persian-summary"
+  revision: "b575560ad967050e77a40f907abb1ebbeefb9a15"
+  device: "cpu"
+  max_input_tokens: 1000
+  max_input_characters: 20000
+  max_output_tokens: 120
+  num_beams: 2
+  repetition_penalty: 1.0
+  length_penalty: 2.0
+  early_stopping: true

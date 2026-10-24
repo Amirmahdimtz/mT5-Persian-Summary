@@ -5,7 +5,7 @@
 | Stage | Status |
 | --- | --- |
 | 1. Project Setup, DI & FastAPI | Completed |
-| 2. mT5 Model Integration | Not Started |
+| 2. mT5 Model Integration | Blocked (real smoke pending) |
 | 3. Document Extraction | Not Started |
 | 4. Chunking & Long Text Summarization | Not Started |
 | 5. Main SummarizationService | Not Started |
@@ -14,7 +14,7 @@
 | 8. Docker & Final Delivery | Not Started |
 
 - Last completed stage: **1**
-- Active stage: **2 (Not Started)**
+- Active stage: **2 (Blocked: real inference verification pending)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -84,3 +84,21 @@ python -m pytest -q
 - Windows HTTP smoke: `python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001` reached `Application startup complete` and served `GET /api/v1/health` with **HTTP 200 OK**. Swagger browser check on Windows was not reported.
 - Windows service start: `python -m src.host.app` failed to bind port 8000 (WinError 10048, address already in use). This is an external port collision, not an application import/DI failure. Alternative: `python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001`.
 - The third-party `starlette.testclient` deprecation warning is non-fatal; no dependency change was necessary for this correction.
+
+
+## Stage 2 — mT5 Model Integration (2026-10-24)
+
+- **Status: Blocked for acceptance verification**. Provider implementation and mocked tests are complete, but real Persian inference was not verified because model dependencies/weights were unavailable. Change Stage 2 to Completed only after an actual Windows CPU smoke test returns a nonempty summary.
+- Starting main HEAD: 2466c4812f4a5b0ee4c91f439a46e34c4d389fc0 (verified via GitHub). Branch main had write permission and no active protection.
+- Stage 2 changed files: src/infrastructure/ml/mt5_model_provider.py; src/infrastructure/ml/smoke_mt5_model.py; tests/test_mt5_model_provider.py; src/host/res/appsettings.yaml; src/host/res/appsettings.development.yaml; requirements.txt; README.md; docs/STAGE2_MODEL_VERIFICATION.md; docs/IMPLEMENTATION_PROGRESS.md.
+- Architecture: existing DI/bootstrap/ConfigReader and health/controller code not changed. New @inject infrastructure provider is singleton per worker; constructor-injected ConfigReader; no model download/import at app startup. Model loaded on first valid summary under a lock. A second lock bounds concurrent inference. Async method uses asyncio.to_thread; synchronous method is CLI-only or to be called on worker threads. Model load errors are cached until restart.
+- Model: nafisehNik/mt5-persian-summary at b575560ad967050e77a40f907abb1ebbeefb9a15; model-card MIT license; MT5ForConditionalGeneration / SentencePiece. Main-branch checkpoint is ~1.2 GB pytorch_model.bin, not safetensors; use trust_remote_code=False, weights_only=True. Alternative safetensors model considered; see docs/STAGE2_MODEL_VERIFICATION.md.
+- Limits: 1000 input tokens including specials (from model-card example; not confirmed architectural maximum), 20,000 input chars (protective Stage-2 limit), decoder max_length=120. No silent truncation.
+- Generation: num_beams=2, repetition_penalty=1.0, length_penalty=2.0, early_stopping=true, do_sample=false. No documented task prefix.
+- CPU default, opt-in auto/cuda with validation; memory guidance >=8 GB available for first CPU test (estimate; not measured), use one worker until profiled.
+- Dependencies added: transformers>=4.48,<5, torch>=2.6,<3, sentencepiece>=0.2,<0.3. Windows Python 3.12 compatibility is still to be exercised.
+- Verification: reconstructed local Python 3.13.5 workspace, python -m compileall -q src tests **Passed**; python -m pytest -q **36 passed, 0 failed** (20 new mocked model tests plus 16 retained Stage-1 regressions). Mock coverage includes DI resolve, singleton, config, validation, token guard, generation/decode, errors, one-time load, concurrency, async method and CPU selection.
+- Real-model smoke command python -m src.infrastructure.ml.smoke_mt5_model: **Blocked (attempted, nonzero exit)** because transformers was not installed in sandbox, and external model download unavailable. No weight download, no Persian summary and no real RAM measurements. Windows real inference: **Not Run**.
+- Known issues: pickle checkpoint provenance risk; real model generation and Windows/Python 3.12 compatibility unverified; model quality beyond Persian news unassessed; original non-blocking Starlette deprecation warning may remain.
+- Next step: run Windows smoke and tests using README instructions. Stage 3 extraction is architecturally independent and can be planned, but Stage 2 acceptance is pending.
+- Commit SHA: see repository main HEAD for this Stage-2 integration commit (the commit SHA cannot be stored in its own content without another commit).

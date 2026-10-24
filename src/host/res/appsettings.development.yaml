@@ -1,0 +1,8 @@
+app:
+  name: "mT5 Persian Summarization Service (Development)"
+  version: "0.1.0"
+server:
+  host: "127.0.0.1"
+  port: 8000
+api:
+  prefix: "/api/v1"

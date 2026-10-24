@@ -23,6 +23,7 @@
 
 ## Stage 1 — Changed Files
 
+- `src/core/services/.gitkeep`: preserve the empty core services namespace in Git checkout.
 - `src/host/app.py`: ASGI startup, DI bootstrap, configuration-driven local server.
 - `src/host/res/appsettings.yaml`, `appsettings.development.yaml`: safe base/development settings.
 - `src/application/web.py`: FastAPI initialization and controller discovery.
@@ -31,7 +32,7 @@
 - `src/infrastructure/di/reflection.py`: provider discovery in infrastructure → core → application order.
 - `src/infrastructure/di/bootstrap.py`: idempotent DI bootstrap.
 - `src/infrastructure/utils/config_reader.py`: YAML loader with dotted keys and per-process singleton semantics.
-- `tests/test_app.py`, `tests/test_di.py`, `tests/test_configuration.py`: HTTP, DI and configuration regression coverage.
+- `tests/test_app.py`, `tests/test_di.py`, `tests/test_configuration.py`, `tests/test_structure.py`: HTTP, DI, configuration and checkout-structure regression coverage.
 - `requirements.txt`, `.python-version`, `.gitignore`, `README.md`: development dependencies, Python baseline and setup instructions.
 - `Service_Architecture_Guide_FA.md`, `IMPLEMENTATION_PLAN.md`: unchanged project source references provided at Stage 1.
 - `docs/IMPLEMENTATION_PROGRESS.md`: stage tracking.
@@ -56,7 +57,7 @@ python -m pytest -q
 ```
 
 - Syntax/compile: Passed.
-- Pytest: **15 passed**, 0 failed.
+- Pytest: **16 passed**, 0 failed.
 - Real HTTP smoke: started `python -m src.host.app`; `GET /api/v1/health`, `/docs`, `/openapi.json` all returned **200**.
 - Model-related integration tests: Not Run; outside Stage 1.
 - Independent Python 3.11 environment: Not Run (local interpreter was Python 3.13.5).

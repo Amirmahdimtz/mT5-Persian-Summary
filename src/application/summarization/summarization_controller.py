@@ -46,6 +46,7 @@ from src.core.services.summarization.text_chunking_service import (
 )
 from src.infrastructure.di.inject import inject
 from src.infrastructure.ml.mt5_model_provider import (
+    ModelBusyError,
     ModelInferenceError,
     ModelInputError,
     ModelLoadError,
@@ -67,7 +68,7 @@ _SAFE_ERROR_CODES = frozenset({
     "PasswordProtectedPdfError", "NoExtractableTextError", "DocumentLimitError",
     "DocumentParsingError", "ChunkingInputError", "ChunkingLimitError",
     "SummarizationInputError", "SummarizationLimitError", "SummarizationNoProgressError",
-    "ModelInputError", "ModelLoadError", "ModelInferenceError", "ModelOutputError",
+    "ModelInputError", "ModelLoadError", "ModelBusyError", "ModelInferenceError", "ModelOutputError",
     "SummaryOutputLimitError",
 })
 
@@ -85,7 +86,7 @@ def _raise_service_error(error: Exception) -> None:
     elif isinstance(error, (DocumentExtractionError, SummarizationInputError, ChunkingInputError,
                             SummarizationRequestError, ModelInputError, SummarizationNoProgressError)):
         status_code, message = 422, "Input cannot be processed."
-    elif isinstance(error, ModelLoadError):
+    elif isinstance(error, (ModelLoadError, ModelBusyError)):
         status_code, message = 503, "Summarization model is unavailable."
     elif isinstance(error, (ModelInferenceError, DocumentParsingError)):
         status_code, message = 500, "Summarization operation failed."

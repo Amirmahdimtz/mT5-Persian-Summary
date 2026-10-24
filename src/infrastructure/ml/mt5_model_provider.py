@@ -6,6 +6,7 @@ import asyncio
 import re
 import threading
 from typing import Any
+from weakref import WeakKeyDictionary
 
 from src.infrastructure.di.inject import inject
 from src.infrastructure.utils.config_reader import ConfigReader, ConfigurationError
@@ -21,6 +22,10 @@ class ModelLoadError(RuntimeError):
 
 class ModelInferenceError(RuntimeError):
     """Tokenization or generation failed."""
+
+
+class ModelBusyError(ModelInferenceError):
+    """Inference admission timed out before starting model work."""
 
 
 class ModelOutputError(ModelInferenceError):
@@ -66,9 +71,23 @@ class Mt5ModelProvider:
         if type(self._early_stopping) is not bool:
             raise ConfigurationError("model.early_stopping must be a boolean")
 
+        self._max_concurrent_inferences = self._require_int(
+            settings, "max_concurrent_inferences", 1, 4
+        )
+        self._queue_wait_seconds = self._require_float(
+            settings, "queue_wait_seconds", lower=0.0, inclusive=False
+        )
+        if self._queue_wait_seconds > 300:
+            raise ConfigurationError("model.queue_wait_seconds must not exceed 300")
+
+        self._admission_lock = threading.Lock()
+        # Separate asyncio loop lifetimes must not share bound futures.
+        self._async_slots: WeakKeyDictionary[
+            asyncio.AbstractEventLoop, asyncio.Semaphore
+        ] = WeakKeyDictionary()
         self._load_lock = threading.RLock()
         self._tokenization_lock = threading.Lock()
-        self._inference_lock = threading.Lock()
+        self._inference_lock = threading.BoundedSemaphore(self._max_concurrent_inferences)
         self._tokenizer: Any = None
         self._model: Any = None
         self._device: str | None = None
@@ -266,10 +285,48 @@ class Mt5ModelProvider:
             except Exception as error:
                 raise ModelInferenceError("mT5 tokenization or generation failed") from error
 
+    def _slots_for_running_loop(self) -> asyncio.Semaphore:
+        loop = asyncio.get_running_loop()
+        with self._admission_lock:
+            slots = self._async_slots.get(loop)
+            if slots is None:
+                slots = asyncio.Semaphore(self._max_concurrent_inferences)
+                self._async_slots[loop] = slots
+            return slots
+
     async def summarize_async(
         self, text: str, *, max_output_tokens: int | None = None
     ) -> str:
-        """Run CPU/GPU-bound inference in a thread without blocking the event loop."""
-        return await asyncio.to_thread(
-            self.summarize, text, max_output_tokens=max_output_tokens
-        )
+        """Bound admission and retain capacity until work really finishes.
+
+        Queue wait timeout is not a generation timeout. Request cancellation
+        cannot forcibly stop a Python worker thread once inference has started.
+        """
+        slots = self._slots_for_running_loop()
+        try:
+            await asyncio.wait_for(
+                slots.acquire(), timeout=self._queue_wait_seconds
+            )
+        except TimeoutError as error:
+            raise ModelBusyError(
+                "mT5 inference capacity is temporarily unavailable"
+            ) from error
+
+        try:
+            task = asyncio.create_task(
+                asyncio.to_thread(
+                    self.summarize, text, max_output_tokens=max_output_tokens
+                )
+            )
+        except BaseException:
+            slots.release()
+            raise
+
+        def finish(done: asyncio.Task[str]) -> None:
+            slots.release()
+            # A disconnected client no longer awaits the result.
+            if not done.cancelled():
+                done.exception()
+
+        task.add_done_callback(finish)
+        return await asyncio.shield(task)

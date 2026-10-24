@@ -8,6 +8,8 @@ api:
   prefix: "/api/v1"
   upload:
     max_total_bytes: 33554432  # 32 MiB aggregate document bytes per request.
+    max_active_requests: 2  # Per ASGI process, held through upload processing.
+    idle_timeout_seconds: 30  # Maximum idle gap between body chunks.
 model:
   id: "nafisehNik/mt5-persian-summary"
   revision: "b575560ad967050e77a40f907abb1ebbeefb9a15"
@@ -15,6 +17,8 @@ model:
   max_input_tokens: 1000
   max_input_characters: 20000
   max_output_tokens: 120
+  max_concurrent_inferences: 1  # Per process.
+  queue_wait_seconds: 30.0  # Admission timeout, not generation timeout.
   num_beams: 2
   repetition_penalty: 1.0
   length_penalty: 2.0

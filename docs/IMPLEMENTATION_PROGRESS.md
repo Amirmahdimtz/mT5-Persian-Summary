@@ -10,11 +10,11 @@
 | 4. Chunking & Long Text Summarization | Completed |
 | 5. Main SummarizationService | Completed |
 | 6. REST API & Upload Validation | Completed |
-| 7. Testing, Security & Optimization | Not Started |
+| 7. Testing, Security & Optimization | In Progress |
 | 8. Docker & Final Delivery | Not Started |
 
 - Last completed stage: **6**
-- Active stage: **None (Stage 7 is next, Not Started)**
+- Active stage: **7 (awaiting Windows acceptance)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -777,3 +777,20 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
 - **Passed:** 43 Stage 6 tests, 243 full-suite tests, 3 real-parser smoke tests, pip check, compilation, DI, discovery, OpenAPI, lazy model loading, live liveness, real text/single/multi-file routes, invalid PDF mapping, partial success and oversized upload protection. **Failed: 0** among executed tests.
 - **Not Run:** systematic qualitative mT5 benchmark on real Persian corpora; production multi-request load, RAM/latency profiling, and an isolated live ASGI request that exercises the full aggregate wire-body cap (the aggregate guard was covered in Stage 6 automated tests). These are non-blocking for Stage 6 acceptance and remain Stage 7 hardening tasks.
 - **Acceptance decision:** all Stage 6 acceptance criteria are satisfied by the user-provided real Windows test and HTTP evidence. **Stage 6 Completed; Stage 7 Ready.** This follow-up changes only `docs/IMPLEMENTATION_PROGRESS.md`. Its own acceptance commit SHA is available from GitHub history and cannot be embedded in the same commit's contents.
+
+## Stage 7 — Testing, Security & Runtime Optimization (2026-10-24)
+
+- **Status: In Progress.** Do not mark Completed before full regression, installed-dependency verification and real-model Windows/Python 3.12.10 smoke evidence.
+- Starting HEAD: `7c40aa1cb975349fcb957701077ad11ffde1a809`; GitHub `main` write permission confirmed.
+- Updated: `src/infrastructure/ml/mt5_model_provider.py`, `src/application/summarization/upload_limit_middleware.py`, `src/application/summarization/summarization_controller.py`, `src/application/web.py`, `src/host/res/appsettings.yaml`, `src/host/res/appsettings.development.yaml`, `requirements.txt`, `README.md`, `docs/IMPLEMENTATION_PROGRESS.md`. Added: `tests/test_stage7_hardening.py`, `src/infrastructure/ml/smoke_mt5_quality.py`.
+- Verified security finding: `python-multipart>=0.0.18` allowed versions affected by header-parsing DoS (GHSA-pp6c-gr5w-3c5g). Requirement minimum raised to 0.0.27. Existing `pypdf>=6.21.2` remains unchanged; no broad version upgrades. Actual installed distributions have not been inspected in the target environment.
+- Inference finding: synchronous `threading.Lock` bounded active generation, but Async `asyncio.to_thread` could create waiting worker threads without admission control; cancelling an await abandoned a still-running thread. Added per-loop Async semaphore, 30-second default bounded queue wait, shielded worker task, completion-based slot release, and configurable process-wide `threading.BoundedSemaphore`. Defaults: `model.max_concurrent_inferences=1`, `model.queue_wait_seconds=30.0`.
+- Upload finding: raw ASGI body was bounded independently of `Content-Length` but many parallel requests could retain memory/disk spools. Added `api.upload.max_active_requests=2` per ASGI process (through downstream completion), and `api.upload.idle_timeout_seconds=30`. Capacity exhaustion responds with sanitized HTTP 503; receive inactivity yields sanitized HTTP 408; `finally` closes spool and releases admission. Existing 20 MiB/file, 32 MiB aggregate and body framing budgets preserved.
+- Lifecycle: provider stays a lazy-loaded `@inject` singleton per worker, with no additional model downloads per call. No model checkpoint, tokenizer or generation hyperparameters changed; no persistence, queue or new architectural layers.
+- Cancellation/timeout boundary: `asyncio.shield` protects the admitted thread-backed task after client cancellation; cancellation does **not** stop active `torch.generate`, tokenization, model loading or synchronous document parser threads. Queue wait and request-body idle timeouts are not hard inference/parser time limits. Unexpected programming errors still propagate, while known model admission failures map to safe HTTP 503.
+- Resource assessment (analytical, not measured): one active request can retain the original bounded upload spool, Starlette multipart spool and materialized in-memory `bytes`; two admissions cap this multiplier per process. `uvicorn --workers N` multiplies model weights and admission caps N times. Use one CPU worker until observed RAM and latency permit otherwise. PDF decompression/parser CPU/RAM adversarial behavior is not fully sandboxed.
+- Added deterministic mock-only capacity, cancellation, cross-loop, upload-timeout and 503 redaction tests. Created a separate optional three-sample Persian quality smoke (short, long, multitopic); reports output and heuristics. No claims of improvement in factual correctness or ROUGE.
+- **Verification at commit preparation:** Final-checkout `python -m pip check`, `python -m compileall -q src tests`, `python -m pytest -q tests/test_stage7_hardening.py`, `python -m pytest -q`, real model quality smoke, RAM/CPU/GPU measurements: **Not Run** (execution sandbox could not resolve github.com to clone the full current repository). Historical Stage 6 Windows regression: **243 passed**, not evidence that Stage 7 passes. No Stage 7 test result is represented as Passed.
+- Known issues: pending Python 3.12.10 Windows acceptance; no real inference concurrency/load benchmark; parser threads are not preemptible, PDF resource usage still needs process isolation under hostile inputs; optional model quality heuristic is not an objective reference metric.
+- Commit message: `feat: bound inference and upload concurrency with cancellation safety`; exact SHA is the subsequently verified GitHub commit, not embedded in this same tracked content.
+- Stage 8 readiness: Stage 7 hardening changes prepared; formal Stage 7 completion and Stage 8 final delivery remain blocked on acceptance evidence.

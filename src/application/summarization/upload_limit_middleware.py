@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from tempfile import SpooledTemporaryFile
 from typing import Any
@@ -24,6 +25,16 @@ def configured_upload_budget(config_reader: ConfigReader) -> int:
     return budget
 
 
+def configured_upload_runtime(config_reader: ConfigReader) -> tuple[int, float]:
+    active = config_reader.get("api.upload.max_active_requests")
+    idle = config_reader.get("api.upload.idle_timeout_seconds")
+    if type(active) is not int or not 1 <= active <= 16:
+        raise ConfigurationError("api.upload.max_active_requests must be in [1, 16]")
+    if type(idle) not in (int, float) or not 1 <= idle <= 300:
+        raise ConfigurationError("api.upload.idle_timeout_seconds must be in [1, 300]")
+    return active, float(idle)
+
+
 class UploadBodyLimitMiddleware:
     """Cap raw body before Starlette parses/spools multipart files.
 
@@ -33,8 +44,24 @@ class UploadBodyLimitMiddleware:
     spool is always closed, including cancellation and validation errors.
     """
 
-    def __init__(self, app: Any, *, api_prefix: str, max_total_bytes: int) -> None:
+    def __init__(
+        self,
+        app: Any,
+        *,
+        api_prefix: str,
+        max_total_bytes: int,
+        max_active_requests: int = 2,
+        idle_timeout_seconds: float = 30.0,
+        admission_wait_seconds: float = 0.25,
+    ) -> None:
+        if type(max_active_requests) is not int or max_active_requests < 1:
+            raise ValueError("max_active_requests must be positive")
+        if idle_timeout_seconds <= 0 or admission_wait_seconds <= 0:
+            raise ValueError("upload timeouts must be positive")
         self.app = app
+        self._active = asyncio.Semaphore(max_active_requests)
+        self._idle_timeout_seconds = idle_timeout_seconds
+        self._admission_wait_seconds = admission_wait_seconds
         self._paths = {
             f"{api_prefix}/summarization/file",
             f"{api_prefix}/summarization/files",
@@ -59,38 +86,67 @@ class UploadBodyLimitMiddleware:
             )(scope, receive, send)
             return
 
-        with SpooledTemporaryFile(max_size=ASGI_MEMORY_SPOOL_BYTES) as spool:
-            total = 0
-            while True:
-                message = await receive()
-                if message["type"] != "http.request":
-                    return  # Disconnected clients do not receive an HTTP response.
-                chunk = message.get("body", b"")
-                total += len(chunk)
-                if total > self._body_budget:
-                    await JSONResponse(
-                        status_code=413,
-                        content={"detail": {
-                            "code": "UploadBodyTooLarge",
-                            "message": "Multipart request exceeds the configured upload budget.",
-                        }},
-                    )(scope, receive, send)
-                    return
-                spool.write(chunk)
-                if not message.get("more_body", False):
-                    break
+        try:
+            await asyncio.wait_for(
+                self._active.acquire(), timeout=self._admission_wait_seconds
+            )
+        except TimeoutError:
+            await JSONResponse(
+                status_code=503,
+                content={"detail": {
+                    "code": "UploadCapacityExceeded",
+                    "message": "Upload capacity is temporarily unavailable.",
+                }},
+            )(scope, receive, send)
+            return
 
-            spool.seek(0)
-            finished = False
+        try:
+            with SpooledTemporaryFile(max_size=ASGI_MEMORY_SPOOL_BYTES) as spool:
+                total = 0
+                while True:
+                    try:
+                        message = await asyncio.wait_for(
+                            receive(), timeout=self._idle_timeout_seconds
+                        )
+                    except TimeoutError:
+                        await JSONResponse(
+                            status_code=408,
+                            content={"detail": {
+                                "code": "UploadReadTimeout",
+                                "message": "Upload stream was idle for too long.",
+                            }},
+                        )(scope, receive, send)
+                        return
+                    if message["type"] != "http.request":
+                        return  # Disconnected clients do not receive an HTTP response.
+                    chunk = message.get("body", b"")
+                    total += len(chunk)
+                    if total > self._body_budget:
+                        await JSONResponse(
+                            status_code=413,
+                            content={"detail": {
+                                "code": "UploadBodyTooLarge",
+                                "message": "Multipart request exceeds the configured upload budget.",
+                            }},
+                        )(scope, receive, send)
+                        return
+                    spool.write(chunk)
+                    if not message.get("more_body", False):
+                        break
 
-            async def replay_receive() -> dict:
-                nonlocal finished
-                if not finished:
-                    part = spool.read(ASGI_REPLAY_CHUNK_BYTES)
-                    if part:
-                        return {"type": "http.request", "body": part, "more_body": True}
-                    finished = True
-                    return {"type": "http.request", "body": b"", "more_body": False}
-                return await receive()
+                spool.seek(0)
+                finished = False
 
-            await self.app(scope, replay_receive, send)
+                async def replay_receive() -> dict:
+                    nonlocal finished
+                    if not finished:
+                        part = spool.read(ASGI_REPLAY_CHUNK_BYTES)
+                        if part:
+                            return {"type": "http.request", "body": part, "more_body": True}
+                        finished = True
+                        return {"type": "http.request", "body": b"", "more_body": False}
+                    return await receive()
+
+                await self.app(scope, replay_receive, send)
+        finally:
+            self._active.release()

@@ -440,3 +440,30 @@ curl.exe -sS -i -X POST "$base/api/v1/summarization/file" -F "file=@invalid.pdf;
 Expected: `GET /health` returns HTTP 200 with `{"status":"ok"}`; Swagger and OpenAPI expose the three POST routes; text and valid TXT return HTTP 200 with typed summaries when the real model succeeds; a corrupt single PDF returns 422; a valid multipart batch returns HTTP 200 with one result per input position, even if some/all files fail. Real-model output quality is not guaranteed; a prior smoke produced only `.`. Delete `sample.txt` and `invalid.pdf` when finished.
 
 Stage 6 HTTP tests use fake Core services and do not download mT5 weights. A real model/API smoke is optional and separate from pytest regression.
+
+
+## Stage 7 runtime hardening (Windows acceptance pending)
+
+- Inference admission is **per worker and per ASGI event loop**. `model.max_concurrent_inferences` defaults to 1, validated in [1, 4]; `model.queue_wait_seconds` defaults to 30. An admission timeout raises a sanitized `ModelBusyError`, mapped to HTTP 503 for text/single-file endpoints. The synchronous `threading.BoundedSemaphore` also caps active generation across concurrent event loops or CLI threads within the same process.
+- Cancellation of an HTTP request does not forcibly terminate `asyncio.to_thread` workers. An admitted task is shielded from request cancellation and its slot is released by a completion callback. Queue wait is **not** a model load/generation timeout. Worker process restarts and external resource isolation remain operational controls.
+- `api.upload.max_active_requests=2` bounds active multipart spools through downstream inference completion; additional uploads wait up to 0.25 seconds then receive sanitized HTTP 503 (`UploadCapacityExceeded`). `api.upload.idle_timeout_seconds=30` limits a stalled request-body chunk gap, returning HTTP 408 (`UploadReadTimeout`). Per-file (20 MiB), aggregate (32 MiB), and raw body plus 1 MiB framing budgets remain unchanged.
+- Multipart parser minimum is now `python-multipart>=0.0.27` to exclude GHSA-pp6c-gr5w-3c5g vulnerable versions. `pypdf>=6.21.2` is unchanged. Installed dependency versions require post-install verification.
+- The existing in-memory batch bytes and Starlette multipart spooling remain bounded per active request. Actual RAM, disk, latency, CUDA and adversarial PDF parser risks are not benchmarked here. A parser thread is not forcibly killed by cancellation and can still consume resources. Keep Uvicorn at **one worker** until CPU/RAM behavior is measured: each process independently loads model weights and has its own resource budgets.
+
+Windows PowerShell (from the existing repository with `.venv` active):
+
+```powershell
+$env:env_type = 'development'
+python -m pip install -r requirements.txt
+python -m pip check
+python -m compileall -q src tests
+python -m pytest -q tests/test_stage7_hardening.py
+python -m pytest -q tests/test_summarization_api.py tests/test_mt5_model_provider.py
+python -m pytest -q
+python -m src.infrastructure.ml.smoke_mt5_quality --sample short
+python -m src.infrastructure.ml.smoke_mt5_quality --sample long
+python -m src.infrastructure.ml.smoke_mt5_quality --sample multitopic
+python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001 --workers 1
+```
+
+The optional real-model quality command uses three fixed Persian passages; it prints model output and nonempty/Persian/punctuation/relative-length checks. Very short outputs are flagged as potential quality issues, not evidence of a measurable ROUGE improvement. Real inference needs downloaded or cached model weights; no model or generation settings were changed.

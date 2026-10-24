@@ -12,6 +12,7 @@ from starlette.responses import JSONResponse
 from src.application.summarization.upload_limit_middleware import (
     UploadBodyLimitMiddleware,
     configured_upload_budget,
+    configured_upload_runtime,
 )
 from src.infrastructure.di.inject import inject
 from src.infrastructure.utils.config_reader import ConfigReader, ConfigurationError
@@ -74,9 +75,12 @@ class WebService:
                     f"{module_name}.{class_name}.api() must return APIRouter"
                 )
             app.include_router(router, prefix=f"{api_prefix}/{feature}")
+        max_active_uploads, idle_timeout = configured_upload_runtime(self._config_reader)
         app.add_middleware(
             UploadBodyLimitMiddleware,
             api_prefix=api_prefix,
             max_total_bytes=configured_upload_budget(self._config_reader),
+            max_active_requests=max_active_uploads,
+            idle_timeout_seconds=idle_timeout,
         )
         return app

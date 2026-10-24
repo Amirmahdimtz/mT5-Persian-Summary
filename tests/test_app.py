@@ -16,7 +16,7 @@ def test_app_initializes_with_configured_metadata() -> None:
 
 
 def test_auto_discovered_health_route() -> None:
-    assert any(route.path == "/api/v1/health" for route in app.routes)
+    assert "/api/v1/health" in app.openapi()["paths"]
 
 
 def test_health_check_http_response() -> None:

@@ -72,3 +72,14 @@ python -m pytest -q
 
 - Stage 1 acceptance criteria: Met in the available local test environment.
 - Ready for Stage 2: model identifier/revision/license verification, a process-scoped ML provider, real inference smoke test, and mocked unit tests.
+
+## Stage 1 Follow-up — Windows Validation and Test Compatibility (2026-10-24)
+
+- User environment: Windows PowerShell, Python 3.12.10, FastAPI 0.162.0, pytest 9.1.1.
+- Initial Windows run: `python -m compileall -q src tests` succeeded; `python -m pytest -q` reported 15 passed and 1 failed.
+- Root cause: the discovery test accessed `route.path` on every item in `app.routes`; FastAPI returned an `_IncludedRouter` object without that attribute. Health HTTP and OpenAPI tests succeeded, indicating functional route discovery.
+- Correction: `tests/test_app.py` now checks the public `app.openapi()["paths"]` contract instead of router internals. No application code or dependencies changed.
+- Local regression validation: `python -m compileall -q src tests` passed; `python -m pytest -q` returned **16 passed, 0 failed** under Python 3.13.5, FastAPI 0.128.2.
+- Windows post-fix rerun on Python 3.12.10/FastAPI 0.162.0: **Not Run** (user must `git pull --ff-only origin main` and run tests).
+- Windows service start: `python -m src.host.app` failed to bind port 8000 (WinError 10048, address already in use). This is an external port collision, not an application import/DI failure. Alternative: `python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001`.
+- The third-party `starlette.testclient` deprecation warning is non-fatal; no dependency change was necessary for this correction.

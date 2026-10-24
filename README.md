@@ -73,3 +73,26 @@ python -m pytest -q
 ```
 
 The Stage 1 tests do not require model downloads, network access, a database, or credentials.
+
+
+## Windows troubleshooting
+
+If Python 3.11 is not installed but Python 3.12 is, use `py -3.12 -m venv .venv`. Python 3.11 or newer is supported.
+
+If PowerShell blocks `Activate.ps1`, enable local script execution for **only this PowerShell process**:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+.\.venv\Scripts\Activate.ps1
+```
+
+Alternatively, do not activate the environment and invoke `.\.venv\Scripts\python.exe` for every Python command.
+
+If port 8000 is already occupied (Windows error 10048), keep the existing process undisturbed and run the ASGI app on another port:
+
+```powershell
+python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001
+Invoke-RestMethod http://127.0.0.1:8001/api/v1/health
+```
+
+Use two terminal windows if running the server in the foreground: the second command belongs in a separate PowerShell session.

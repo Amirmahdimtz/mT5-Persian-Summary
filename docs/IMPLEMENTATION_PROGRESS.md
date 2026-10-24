@@ -7,14 +7,14 @@
 | 1. Project Setup, DI & FastAPI | Completed |
 | 2. mT5 Model Integration | Completed |
 | 3. Document Extraction | Completed |
-| 4. Chunking & Long Text Summarization | In Progress |
+| 4. Chunking & Long Text Summarization | Completed |
 | 5. Main SummarizationService | Not Started |
 | 6. REST API & Upload Validation | Not Started |
 | 7. Testing, Security & Optimization | Not Started |
 | 8. Docker & Final Delivery | Not Started |
 
-- Last completed stage: **3**
-- Active stage: **4 (In Progress; implementation and isolated unit tests complete, Windows regression and real mT5 smoke pending)**
+- Last completed stage: **4**
+- Active stage: **None (Stage 5 is next, Not Started)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -435,10 +435,10 @@ python -m pytest -q
 
 ## Stage 4 — Token-aware Chunking and Hierarchical Summarization (2026-10-24)
 
-- **Status: In Progress.** Implementation is committed on main and 47 new
-  mocked unit tests passed in an isolated local Python 3.13 environment.
-  Final acceptance is pending full-repository and real-model verification
-  on the actual commit, preferably Windows/Python 3.12.10.
+- **Status: Completed (Windows acceptance verified 2026-10-24).**
+  Initially 47 mocked tests passed in an isolated Python 3.13 workspace;
+  independent Windows/Python 3.12.10 verification later passed all
+  140 tests and real mT5 smoke. See the final acceptance record below.
 - Baseline verified at Stage 4 start:
   f4cf5f8201234ad43243ec361f162b29c86fff3a. Main branch write access
   confirmed. Latest implementation/documentation commits are in GitHub
@@ -532,7 +532,7 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
   time and RAM. A non-blocking Starlette deprecation warning appeared
   in the prior Windows Stage 3 suite.
 
-### Stage 4 Remaining Acceptance and Stage 5 Readiness
+### Stage 4 Pre-Acceptance Checklist (historical; verified below)
 
 - Run pip check, compile, new Stage 4 tests, all regression tests and
   opt-in real smoke on Windows after git pull --ff-only origin main.
@@ -541,3 +541,61 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
   until those acceptance checks succeed, or their environment blockers
   are explicitly accepted. The implementation is ready for verification;
   Stage 5 should start only after Stage 4 final acceptance.
+
+## Stage 4 Final Acceptance — Windows Python 3.12.10 (2026-10-24)
+
+- **Status: Completed.** User-provided Windows PowerShell validation was run on
+  clean `main`, HEAD `9aa9a963f4b5df34908b09efe806bd262b146369`,
+  already current with `origin/main`. `git status --short` returned no local changes.
+  Only this progress document changes in the acceptance follow-up.
+- Environment: Windows PowerShell, project-local `.venv`, Python **3.12.10**,
+  `env_type=development`. The shell initially activated a different project's
+  venv but explicitly activated this repository's `.venv` before tests.
+- Dependencies: `python -m pip install -r requirements.txt` reported requirements
+  satisfied, including Transformers 4.57.6, Torch 2.14.1+cpu,
+  SentencePiece 0.2.2, pypdf 6.21.2 and python-docx 1.2.0.
+  `python -m pip check`: **Passed** (`No broken requirements found.`).
+  No dependency changes.
+- `python -m compileall -q src tests`: **Passed**.
+  `bootstrap_di(); resolve(LongTextSummarizationService)` worked and
+  `output_token_budget` for short/medium/long returned **[40, 80, 120]**.
+- Stage 4 automated test command:
+  `python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_summarization_service.py tests/test_mt5_stage4_provider.py`:
+  **47 passed, 0 failed in 11.13s**.
+- Complete regression `python -m pytest -q`: **140 passed, 0 failed in 15.77s**;
+  one non-blocking `StarletteDeprecationWarning` in third-party
+  `fastapi.testclient`. This includes all prior 93 tests and 47 new Stage 4 tests.
+  A separate, redundant second `pytest` invocation ended with
+  `KeyboardInterrupt` during pytest import, before test execution;
+  it is **not a failed test** and does not invalidate the preceding complete run.
+- Real CPU smoke `python -m src.infrastructure.ml.smoke_mt5_long_text`:
+  completed without an exception traceback, showing
+  `Input characters: 3184`, `Summary token budget: 80` and nonempty
+  Persian summary `برای تحلیل اسناد فارسی نیاز دارد.`.
+  The smoke asserts the input spans multiple chunks and final output,
+  re-encoded by the actual tokenizer, stays within the requested budget.
+  **Functional smoke passed**; this does not measure summary quality,
+  throughput or RAM.
+- Live health via `python -m uvicorn src.host.app:app --host 127.0.0.1
+  --port 8001`: startup completed and `GET /api/v1/health` returned
+  **HTTP 200 OK**.
+- Non-blocking observations: legacy T5 tokenizer behavior;
+  HF Xet fallback to regular HTTP because `hf_xet` is absent;
+  Windows Hugging Face cache symlink warning; an approximately
+  1.20 GB `model.safetensors` download progress shown around the smoke
+  even though current Provider explicitly uses `use_safetensors=False`
+  for model loading. The origin of this extra transfer is unverified.
+  The brief/generic summary for the repeated synthetic text is not evidence
+  of consistent real-document fidelity; quality evaluation remains pending.
+  PDF RTL/font fidelity limitations from Stage 3 remain.
+- **Passed:** dependency consistency, compile/import, DI graph, length mapping,
+  all 47 Stage 4 tests, all 140 regressions, opt-in real-model smoke,
+  and live HTTP health. **Failed: 0** among completed tests.
+  **Not Run:** broad representative-document semantic quality benchmark,
+  systematic inference latency/RAM profiling, production concurrent-worker
+  load test. Those activities are not Stage 4 acceptance blockers.
+- **Acceptance decision:** Stage 4 criteria are met in the reported
+  Windows environment. **Stage 4 Completed; Stage 5 Ready.**
+  No Stage 5 implementation was added. This documentation-only commit's
+  SHA is recorded in GitHub history rather than embedded in its own file.
+

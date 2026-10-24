@@ -599,3 +599,74 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
   No Stage 5 implementation was added. This documentation-only commit's
   SHA is recorded in GitHub history rather than embedded in its own file.
 
+
+
+## Stage 5 — Main SummarizationService & Multi-Document Orchestration (2026-10-24)
+
+- **Status: In Progress** (implementation committed; complete-checkout
+  regression and Windows acceptance must be run before marking Completed).
+- **Starting HEAD:** af10d02b798b1fe8ae43e5526f51204e834c70f1.
+  Repo owner Amirmahdimtz; main; GitHub connector confirmed push permission,
+  current branch head and unprotected status before implementation.
+- **Created:** src/core/services/summarization/summarization_service.py,
+  tests/test_summarization_service.py.
+- **Updated:** README.md, docs/IMPLEMENTATION_PROGRESS.md.
+- **Third-party dependencies:** none. Previous Stage 1–4 files, model
+  provider, configuration and DI registration are unchanged.
+- **Service contract:** constructor-injected DocumentExtractionService and
+  LongTextSummarizationService with @inject auto-discovery.
+  summarize_text_async(text, summary_length="medium") -> TextSummaryResult;
+  summarize_file_async(content, filename, summary_length="medium")
+  -> FileSummaryResult on success, typed exception on failure;
+  summarize_files_async(files: Sequence[DocumentInput],
+  summary_length="medium") -> MultiFileSummaryResult.
+  Results are immutable slotted dataclasses.
+- **Metadata:** actual character counts only, raw input length for text
+  and extracted Unicode length for files; no fabricated token counts,
+  model ID or chunk counts. Characters, words and encoded tokens differ.
+- **Error policy:** empty/invalid text and summary length are rejected
+  before inference; empty model output is an explicit ModelInferenceError.
+  A single file propagates Stage 3 / Stage 4 typed exceptions.
+  In a batch, known document/parser/chunking/model errors become
+  per-file failure entries with exception-class error_code and safe,
+  fixed error_message without document or internal exception text.
+  Invalid collection or size is a SummarizationRequestError; an invalid
+  summary length is SummarizationInputError for the whole batch.
+  Programming exceptions and asyncio.CancelledError propagate.
+- **Partial success:** ordered tuple retains every position, including
+  duplicate filenames; succeeded/failed counts are derived. Each batch
+  processes at most 32 documents sequentially and snapshots the input
+  sequence. No unbounded tasks, no persistence or upload/HTTP types.
+  Stage 3 extraction is offloaded to asyncio.to_thread. Stage 4 retains
+  its existing tokenizer, inference, hierarchy and resource limits.
+- **Local source-only verification:** Python 3.13.5 Linux isolated
+  workspace using the new service and tests plus locally reconstructed
+  fake interfaces for existing Stage 1–4 dependencies.
+  python -m compileall -q src tests: Passed.
+  python -m pytest -q tests/test_summarization_service.py:
+  **60 passed, 0 failed**.
+  Includes invalid text/length/bytes, long delegation, per-format extraction
+  orchestration, typed parser/model/resource errors, duplicate filenames,
+  partial/all failures, error-message redaction, cancellation, sequential
+  inference, event-loop responsiveness and collection mutation.
+- **Not Run in current environment:** Stage 5 tests against the *entire*
+  latest repository checkout, complete Stage 1–5 pytest regression on
+  Windows/Python 3.12.10, bootstrap_di/resolve on a real Stage 5 checkout,
+  real-parser Stage 5 integration and real-model Stage 5 smoke.
+  The GitHub integration exposes repository source and commits but this
+  sandbox cannot clone GitHub directly (DNS unavailable). Do not claim
+  the previous 140 Stage 4 tests constitute Stage 5 regression verification.
+- **Failed tests:** none in the isolated Stage 5 run; full checkout outcome
+  is unknown. Prior baseline: 140 passed on Windows for Stage 4.
+- **Known issues:** a cancelled thread-offloaded parser or inference can
+  continue until its blocking function returns; total concurrency across
+  independent requests is outside this per-request batch limit.
+  Stage 6 must enforce stream upload and payload limits before bytes reach
+  this service. Model quality, PDF RTL/font accuracy and latency/RAM
+  benchmarks remain open from previous stages.
+- **Commit message:** feat: implement main summarization service and multi-file orchestration.
+  Commit SHA is obtainable from GitHub history; it cannot be embedded in
+  the same commit's tracked progress file.
+- **Stage 6 readiness:** new Python business API is implemented, but Stage 5
+  final acceptance and full Windows regression remain pending.
+  Do not mark Stage 5 Completed until these have been verified.

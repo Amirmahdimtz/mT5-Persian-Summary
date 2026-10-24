@@ -281,3 +281,78 @@ CPU planning estimate. Keep this smoke outside the default pytest suite.
 It checks the final summary is nonempty and within the encoded-token
 output budget. Local isolated Stage 4 mock tests are not a substitute
 for the full Windows/Python 3.12.10 regression and real-model smoke.
+
+
+## Stage 5: Main Python summarization service
+
+Stage 5 adds SummarizationService as an in-process Python orchestration layer.
+It does not create HTTP summarization endpoints (these belong to Stage 6).
+Resolve it after bootstrap_di() so the existing extractor and hierarchical
+summarizer are constructor-injected, rather than loading model weights directly:
+
+~~~python
+import asyncio
+from src.infrastructure.di.bootstrap import bootstrap_di
+from src.infrastructure.di.inject import resolve
+from src.core.services.summarization.summarization_service import (
+    DocumentInput, SummarizationService,
+)
+
+bootstrap_di()
+service = resolve(SummarizationService)
+
+async def example():
+    text = await service.summarize_text_async("یک متن فارسی مناسب برای خلاصه سازی", "medium")
+    one_file = await service.summarize_file_async(
+        "متن فارسی سند".encode("utf-8"), "example.txt", "short"
+    )
+    multiple = await service.summarize_files_async([
+        DocumentInput("first.txt", "متن اول".encode("utf-8")),
+        DocumentInput("second.txt", "متن دوم".encode("utf-8")),
+    ], "medium")
+    return text, one_file, multiple
+
+text_result, file_result, batch_result = asyncio.run(example())
+print(text_result.summary, file_result.summary)
+for item in batch_result.results:
+    print(item.filename, item.success, item.summary, item.error_code)
+~~~
+
+The example runs real model inference on the first call; weights may need to
+be downloaded and CPU execution can be slow. Tests use fake dependencies.
+
+Public contracts:
+- summarize_text_async(text: str, summary_length: str = "medium") returns
+  TextSummaryResult(summary, summary_length, input_characters, output_characters).
+- summarize_file_async(content: bytes, filename: str,
+  summary_length: str = "medium") returns a successful FileSummaryResult,
+  or raises the existing typed extraction/model/hierarchy exception.
+- summarize_files_async(files: Sequence[DocumentInput],
+  summary_length: str = "medium") returns MultiFileSummaryResult with ordered
+  FileSummaryResult entries and computed succeeded/failed counts.
+- DocumentInput is an immutable dataclass of filename and content bytes.
+  FileSummaryResult has success, summary, summary_length, filename,
+  input_characters, output_characters, error_code and error_message.
+  Failure entries have success=False, summary=None, error_code set to the
+  known exception type, and a deliberately generic error_message.
+
+Validation of the summary length and the batch collection is request-wide;
+invalid file input is handled per document after the collection is accepted.
+Files run sequentially with a maximum of 32 documents per batch, preserving
+order and duplicate names by index and without unbounded task spawning.
+Document extraction is offloaded with asyncio.to_thread; the Stage 4 service
+already offloads tokenizer/chunking and inference. Recognized document,
+parser, chunking and model errors yield file failures without dropping other
+results; unexpected code defects and cancellation propagate. Worker-thread
+extraction/inference may finish in the background after cancellation of an
+awaiting coroutine (they cannot be forcibly interrupted).
+
+Input/output character counts are counts of Python Unicode characters
+(Unicode code points) in the supplied/extracted text and returned summary,
+not word counts, encoded token counts, or chunk counts. Stage 5 does not
+guess tokens, chunks, or model IDs or load weights to calculate metadata.
+Existing per-document extraction guards, 200,000 normalized character
+hierarchy work budget, 64 chunk limit, six hierarchy levels and 128 model
+calls remain unchanged. Callers must apply upload-size limits while reading
+streams in Stage 6/7, before passing any bytes to this service. PDFs without
+extractable text remain unsupported; OCR is not provided.

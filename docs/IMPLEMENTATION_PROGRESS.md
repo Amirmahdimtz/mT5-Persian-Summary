@@ -9,12 +9,12 @@
 | 3. Document Extraction | Completed |
 | 4. Chunking & Long Text Summarization | Completed |
 | 5. Main SummarizationService | Completed |
-| 6. REST API & Upload Validation | Not Started |
+| 6. REST API & Upload Validation | Completed |
 | 7. Testing, Security & Optimization | Not Started |
 | 8. Docker & Final Delivery | Not Started |
 
-- Last completed stage: **5**
-- Active stage: **None (Stage 6 is next, Not Started)**
+- Last completed stage: **6**
+- Active stage: **None (Stage 7 is next, Not Started)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -740,7 +740,7 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
   The acceptance SHA is visible in GitHub history (it cannot be embedded
   into its own commit contents).
 
-## Stage 6 — REST API, DTO and Secure Upload (2026-10-24)
+## Stage 6 — REST API, DTO and Secure Upload (2026-10-24; implementation / pre-acceptance record)
 
 - **Stage: 6; Status: In Progress** pending final full-repository regression and Windows/Python 3.12.10 acceptance. Stages 1–5 unchanged and previously Completed. Stage 7 Not Started.
 - **Starting HEAD:** f82712b9a3c3684c08fc5d2e40eda0ccd7aefc1d on Amirmahdimtz/mT5-Persian-Summary/main, verified via GitHub branch endpoint. Repository push permission: true, `main` reported unprotected; branch-protection detail requires an unavailable GitHub app permission. Repository rulesets collection returned empty.
@@ -759,3 +759,21 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
 - **Known issues:** Isolated fake-based tests do not prove full checkout integration. Temporary spooling can use disk and may double-buffer wire multipart temporarily; no cross-request admission budget. A real Stage 5 mT5 smoke returned punctuation-only `.` (functional orchestration passed but quality not established). PDF RTL/font extraction is heuristic. Cancellation cannot preempt work already executing in a worker thread. A prior StarletteDeprecationWarning is non-blocking.
 - **Commit message:** `feat: implement summarization REST API and secure file uploads`. The GitHub commit SHA must be read from `main` after the commit; it cannot be included in the content of its own commit.
 - **Stage 7 readiness:** after Windows full regression, DI/OpenAPI, HTTP smoke and reported acceptance of Stage 6. Stage 6 remains In Progress until those criteria are evidenced.
+
+## Stage 6 Final Acceptance — Windows Python 3.12.10 (2026-10-24)
+
+- **Final status: Completed.** The user provided Windows PowerShell command output from the real GitHub checkout on the project's own `.venv`, with `env_type=development`. These results supersede the pre-acceptance "In Progress" / "Not Run" entries above; those entries remain as historical evidence of what had not been verified at the time of the implementation commit.
+- **Validated implementation HEAD:** `15f3cf9b69c0603e302ba62acdf7ef73932693f3`, message `feat: implement summarization REST API and secure file uploads`. `git pull --ff-only origin main` advanced `f82712b..15f3cf9`; `git rev-parse HEAD` exactly matched; `git status --short` printed no changes. GitHub head still matched when these logs were reviewed.
+- **Environment:** Windows PowerShell, Python **3.12.10**, project-local `.venv`, `env_type=development`; installation from `requirements.txt` succeeded, adding `python-multipart 0.0.32` within the documented constraint.
+- **Dependency integrity:** `python -m pip check` => `No broken requirements found.` **Passed**. `python -m compileall -q src tests` => **Passed** (no errors printed).
+- **DI / startup / discovery / OpenAPI:** `bootstrap_di()`, `resolve(SummarizationController)`, `resolve(SummarizationService)`, and the assertion that the resolved `Mt5ModelProvider._model is None` on startup **Passed**. All three POST paths are present in `app.openapi()`, and the existing health route remains present.
+- **Stage 6 tests:** `python -m pytest -q tests/test_summarization_api.py` => **43 passed, 0 failed, 2 warnings in 14.35s**. Tests cover valid/invalid inputs, response and HTTP mapping, bounded upload reads, ingress aggregate enforcement, resource cleanup, partial success, cancellation and discovery, using fakes rather than downloading/initiating inference.
+- **Full regression:** `python -m pytest -q` => **243 passed, 0 failed, 2 warnings in 40.23s**. Compared with Stage 5's last baseline of 200 passed, the full run contains 43 new Stage 6 tests and no failures.
+- **Real document parser smoke:** `python -m pytest -q -s tests/test_document_extraction_service.py -k smoke_` => **3 passed, 54 deselected in 3.95s**. Persian TXT, generated text PDF and DOCX extraction output was displayed.
+- **Live ASGI smoke:** `python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001` started successfully; `GET /api/v1/health`, `GET /openapi.json` and `GET /docs` returned HTTP **200**. OpenAPI displayed exactly the expected health plus summarization text/file/files routes in the user log.
+- **Real model HTTP calls:** Persian text POST `/api/v1/summarization/text` with `summary_length=short` returned **200**, `input_characters=1685`, `output_characters=87`, a nonempty `summary` (the PowerShell `Invoke-RestMethod` display showed mojibake, so semantic quality of this particular output cannot be judged from its console rendering). A valid UTF-8 TXT via POST `/file` with `summary_length=medium` returned **200**, `success=true`, nonempty Persian summary and character counts (43 input, 46 output). The same TXT paired with a deliberately invalid PDF via POST `/files` returned **200**, `succeeded=1`, `failed=1`, ordered result records and safe `InvalidDocumentError` for the PDF. Invalid PDF alone returned **422** with sanitized `detail.code/message`. An upload of 20 MiB + 1 byte returned **413** with `FileTooLarge`; test file was removed. Other generated sample files were removed afterwards. Uvicorn request logs corroborated these status codes.
+- **Warnings:** nonblocking third-party `StarletteDeprecationWarning` at `fastapi/testclient.py` and `DeprecationWarning` about deprecated `data=` usage in the invalid-JSON test; no failed tests. These are candidates for targeted Stage 7 maintenance and do not invalidate Stage 6 acceptance.
+- **Known limitations retained:** PowerShell string rendering of the text API's Persian response was mojibake while `curl.exe` displayed valid Persian JSON for file/batch endpoints; likely client-side response encoding/display and not proof of malformed server-side output. Prior punctuation-only real-model output and the current brief, repetitive summaries do not establish semantic quality. Representative-language evaluation remains Stage 7 work. PDF RTL/font mappings remain heuristic; multipart spooling can use temporary disk; multi-request aggregate memory/CPU admission and throughput profiling are not verified. Cancellation cannot forcibly stop already-running worker threads. No model, Core, provider or generation-parameter change is justified by these acceptance results.
+- **Passed:** 43 Stage 6 tests, 243 full-suite tests, 3 real-parser smoke tests, pip check, compilation, DI, discovery, OpenAPI, lazy model loading, live liveness, real text/single/multi-file routes, invalid PDF mapping, partial success and oversized upload protection. **Failed: 0** among executed tests.
+- **Not Run:** systematic qualitative mT5 benchmark on real Persian corpora; production multi-request load, RAM/latency profiling, and an isolated live ASGI request that exercises the full aggregate wire-body cap (the aggregate guard was covered in Stage 6 automated tests). These are non-blocking for Stage 6 acceptance and remain Stage 7 hardening tasks.
+- **Acceptance decision:** all Stage 6 acceptance criteria are satisfied by the user-provided real Windows test and HTTP evidence. **Stage 6 Completed; Stage 7 Ready.** This follow-up changes only `docs/IMPLEMENTATION_PROGRESS.md`. Its own acceptance commit SHA is available from GitHub history and cannot be embedded in the same commit's contents.

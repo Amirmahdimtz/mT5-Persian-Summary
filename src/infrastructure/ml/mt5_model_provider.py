@@ -66,12 +66,26 @@ class Mt5ModelProvider:
         if type(self._early_stopping) is not bool:
             raise ConfigurationError("model.early_stopping must be a boolean")
 
-        self._load_lock = threading.Lock()
+        self._load_lock = threading.RLock()
+        self._tokenization_lock = threading.Lock()
         self._inference_lock = threading.Lock()
         self._tokenizer: Any = None
         self._model: Any = None
         self._device: str | None = None
         self._load_failure: ModelLoadError | None = None
+        self._tokenizer_failure: ModelLoadError | None = None
+
+    @property
+    def max_input_tokens(self) -> int:
+        return self._max_input_tokens
+
+    @property
+    def max_input_characters(self) -> int:
+        return self._max_input_characters
+
+    @property
+    def max_output_tokens(self) -> int:
+        return self._max_output_tokens
 
     @staticmethod
     def _require_str(settings: dict[str, Any], key: str) -> str:
@@ -101,6 +115,32 @@ class Mt5ModelProvider:
             raise ConfigurationError(f"model.{key} must be finite and positive")
         return number
 
+    def _ensure_tokenizer_loaded(self) -> None:
+        """Initialize the pinned tokenizer once, without loading model weights."""
+        if self._tokenizer is not None:
+            return
+        with self._load_lock:
+            if self._tokenizer is not None:
+                return
+            if self._tokenizer_failure is not None:
+                raise self._tokenizer_failure
+            try:
+                from transformers import AutoTokenizer
+
+                self._tokenizer = AutoTokenizer.from_pretrained(
+                    self._model_id,
+                    revision=self._revision,
+                    use_fast=False,
+                    trust_remote_code=False,
+                )
+            except Exception as error:
+                failure = ModelLoadError(
+                    "Failed to initialize the configured mT5 tokenizer; "
+                    "check dependencies, Hugging Face access and cache"
+                )
+                self._tokenizer_failure = failure
+                raise failure from error
+
     def _ensure_loaded(self) -> None:
         if self._model is not None:
             return
@@ -111,7 +151,7 @@ class Mt5ModelProvider:
                 raise self._load_failure
             try:
                 import torch
-                from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+                from transformers import AutoModelForSeq2SeqLM
 
                 device = self._device_setting
                 if device == "auto":
@@ -119,12 +159,7 @@ class Mt5ModelProvider:
                 if device == "cuda" and not torch.cuda.is_available():
                     raise RuntimeError("CUDA was selected but is unavailable")
 
-                tokenizer = AutoTokenizer.from_pretrained(
-                    self._model_id,
-                    revision=self._revision,
-                    use_fast=False,
-                    trust_remote_code=False,
-                )
+                self._ensure_tokenizer_loaded()
                 model = AutoModelForSeq2SeqLM.from_pretrained(
                     self._model_id,
                     revision=self._revision,
@@ -141,11 +176,38 @@ class Mt5ModelProvider:
                 )
                 self._load_failure = failure
                 raise failure from error
-            self._tokenizer = tokenizer
             self._model = model
             self._device = device
 
-    def summarize(self, text: str) -> str:
+    def count_input_tokens(self, text: str) -> int:
+        """Count model input tokens including specials without loading weights.
+
+        The same edge-trimming and special-token policy is used for inference.
+        Input to this method is bounded by the provider's character budget.
+        """
+        if not isinstance(text, str) or not text.strip():
+            raise ModelInputError("text must be a non-empty string")
+        text = text.strip()
+        if len(text) > self._max_input_characters:
+            raise ModelInputError(
+                f"text exceeds {self._max_input_characters} characters; use chunking"
+            )
+        self._ensure_tokenizer_loaded()
+        try:
+            with self._tokenization_lock:
+                encoded = self._tokenizer(
+                    text,
+                    add_special_tokens=True,
+                    padding=False,
+                    truncation=False,
+                    return_attention_mask=False,
+                    return_tensors=None,
+                )
+            return len(encoded["input_ids"])
+        except Exception as error:
+            raise ModelInferenceError("mT5 input token counting failed") from error
+
+    def summarize(self, text: str, *, max_output_tokens: int | None = None) -> str:
         """Synchronously summarize one short text (blocks the calling thread)."""
         if not isinstance(text, str) or not text.strip():
             raise ModelInputError("text must be a non-empty string")
@@ -154,19 +216,25 @@ class Mt5ModelProvider:
             raise ModelInputError(
                 f"text exceeds {self._max_input_characters} characters; use chunking"
             )
+        output_limit = self._max_output_tokens if max_output_tokens is None else max_output_tokens
+        if type(output_limit) is not int or not 1 <= output_limit <= self._max_output_tokens:
+            raise ModelInputError(
+                f"max_output_tokens must be in [1, {self._max_output_tokens}]"
+            )
         self._ensure_loaded()
         with self._inference_lock:
             try:
                 import torch
 
-                encoded = self._tokenizer(
-                    text,
-                    add_special_tokens=True,
-                    padding=False,
-                    truncation=False,
-                    return_attention_mask=True,
-                    return_tensors="pt",
-                )
+                with self._tokenization_lock:
+                    encoded = self._tokenizer(
+                        text,
+                        add_special_tokens=True,
+                        padding=False,
+                        truncation=False,
+                        return_attention_mask=True,
+                        return_tensors="pt",
+                    )
                 token_count = encoded["input_ids"].shape[-1]
                 if token_count > self._max_input_tokens:
                     raise ModelInputError(
@@ -177,16 +245,19 @@ class Mt5ModelProvider:
                 with torch.inference_mode():
                     generated = self._model.generate(
                         **inputs,
-                        max_length=self._max_output_tokens,
+                        max_length=output_limit,
                         num_beams=self._num_beams,
                         repetition_penalty=self._repetition_penalty,
                         length_penalty=self._length_penalty,
                         early_stopping=self._early_stopping,
                         do_sample=False,
                     )
-                summary = self._tokenizer.decode(
-                    generated[0], skip_special_tokens=True, clean_up_tokenization_spaces=True
-                )
+                with self._tokenization_lock:
+                    summary = self._tokenizer.decode(
+                        generated[0],
+                        skip_special_tokens=True,
+                        clean_up_tokenization_spaces=True,
+                    )
                 if not isinstance(summary, str) or not summary.strip():
                     raise ModelOutputError("mT5 returned an empty summary")
                 return summary.strip()
@@ -195,6 +266,10 @@ class Mt5ModelProvider:
             except Exception as error:
                 raise ModelInferenceError("mT5 tokenization or generation failed") from error
 
-    async def summarize_async(self, text: str) -> str:
+    async def summarize_async(
+        self, text: str, *, max_output_tokens: int | None = None
+    ) -> str:
         """Run CPU/GPU-bound inference in a thread without blocking the event loop."""
-        return await asyncio.to_thread(self.summarize, text)
+        return await asyncio.to_thread(
+            self.summarize, text, max_output_tokens=max_output_tokens
+        )

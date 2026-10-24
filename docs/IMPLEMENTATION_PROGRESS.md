@@ -794,3 +794,11 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
 - Known issues: pending Python 3.12.10 Windows acceptance; no real inference concurrency/load benchmark; parser threads are not preemptible, PDF resource usage still needs process isolation under hostile inputs; optional model quality heuristic is not an objective reference metric.
 - Commit message: `feat: bound inference and upload concurrency with cancellation safety`; exact SHA is the subsequently verified GitHub commit, not embedded in this same tracked content.
 - Stage 8 readiness: Stage 7 hardening changes prepared; formal Stage 7 completion and Stage 8 final delivery remain blocked on acceptance evidence.
+
+### Stage 7 GitHub commit verification (2026-10-24)
+
+- Implementation commit SHA: `6904e83d12865a5d8cea6788f5867b46760d4c51` — `feat: bound inference and upload concurrency with cancellation safety` (11 Stage 7 files).
+- Test correction commit SHA: `65dfe06a74987835b43bb306dffc883c445c9167` — `test: use awaited ASGI send callbacks in concurrency tests` (required by the ASGI send callable contract).
+- Upload admission follow-up SHA: `60d4e38b338719b1349948fdb0f3637a71305a04` — `fix: enforce upload admission across ASGI event loops` (replace loop-bound Async semaphore with process-wide `threading.BoundedSemaphore` plus non-blocking async polling).
+- All three changes were verified as commits on GitHub `main`; final branch head advances again with this progress-document update. GitHub branch history is the authoritative reference.
+- No complete checkout or installed target dependencies were available to execute the new Python tests in the tool sandbox. Do not infer Passed results from successful GitHub commit creation.

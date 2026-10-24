@@ -6,7 +6,7 @@
 | --- | --- |
 | 1. Project Setup, DI & FastAPI | Completed |
 | 2. mT5 Model Integration | Completed |
-| 3. Document Extraction | Not Started |
+| 3. Document Extraction | In Progress |
 | 4. Chunking & Long Text Summarization | Not Started |
 | 5. Main SummarizationService | Not Started |
 | 6. REST API & Upload Validation | Not Started |
@@ -14,7 +14,7 @@
 | 8. Docker & Final Delivery | Not Started |
 
 - Last completed stage: **2**
-- Active stage: **3 (Not Started)**
+- Active stage: **3 (In Progress — target-runtime regression pending)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -119,3 +119,88 @@ python -m pytest -q
 - Manual `Invoke-RestMethod http://127.0.0.1:8001/api/v1/health` returned `Unable to connect to the remote server`. The supplied log does **not** show a preceding Uvicorn start command; check for a listening server on port 8001 before drawing conclusions about application HTTP functionality. The HTTP health route already passed the automated tests and previous Stage-1 Windows live test.
 - **Acceptance:** Stage 2 criteria met: real short Persian inference returned a non-empty summary, DI resolved a singleton, configuration and token-generation behavior are covered by tests, failures are distinguishable. Stage 2 **Completed**, Stage 3 **Not Started**.
 - Implementation commit: `fd6b2a87c66f425133c649caddd594a49b9238a3`. Follow-up documentation commit: see GitHub history after this record is published.
+
+## Stage 3 — Document Extraction (2026-10-24)
+
+- **Status: In Progress**; core extraction is implemented, but the declared
+  pypdf >=6.21.2 dependency and full Stage 1/2 regression suite have not
+  been executed in the target Windows/Python 3.12 environment.
+- Starting HEAD: `67b63804cb62a83f4b88b0da0a26785287314ad5`;
+  main write access and unprotected branch verified through GitHub.
+- Changed files: `src/core/services/summarization/document_extraction_service.py`,
+  `tests/test_document_extraction_service.py`, `requirements.txt`,
+  `README.md`, and `docs/IMPLEMENTATION_PROGRESS.md`.
+- Contract: `DocumentExtractionService.extract(content: bytes, filename: str) -> str`;
+  convenience methods `extract_txt(content)`, `extract_pdf(content)`,
+  `extract_docx(content)` return Unicode `str`. File extension selects
+  format case-insensitively; corrupt content is not trusted. No FastAPI,
+  storage, summarization, model loading, or database dependency.
+- TXT policy: strict UTF-8 decoding with optional UTF-8 BOM; never guess
+  encoding or ignore failures. Reject invalid binary control characters.
+  Preserve Persian Unicode, numbers, punctuation and ZWNJ.
+- PDF: pypdf (BSD-3-Clause, pure Python, Windows/Python 3.12 compatible),
+  `PdfReader(BytesIO(...), strict=True)`; layout extraction with
+  `layout_mode_strip_rotated=False` because plain extraction reversed Persian
+  in local tests. Process pages in order, omit empty pages, reject encrypted
+  PDFs, corrupted documents, excessive page count and no-extractable-text.
+  Text layer is mandatory; OCR is not available. Alternative PyMuPDF uses
+  AGPLv3 or a commercial license and adds compiled native components.
+- DOCX: python-docx 1.2+ (MIT, Python >=3.9; lxml dependency), use
+  `Document(BytesIO(...)).iter_inner_content()` to preserve document-order
+  paragraphs and tables; traverse cell content and nested tables; do not
+  duplicate merged cells. Unsupported .doc is rejected. Comments, headers,
+  footers, text boxes, embedded objects and tracked-change text are not
+  guaranteed. DOCX ZIP metadata is screened before XML parsing.
+- Dependency changes: `pypdf>=6.21.2,<7.0`,
+  `python-docx>=1.2,<2.0`. pypdf minimum chosen after reviewing published
+  2025-2026 memory/CPU exhaustion security advisories; do not deploy the
+  older version used by the isolated local test sandbox.
+- Resource guards: input <=20 MiB, output <=5,000,000 chars, PDF <=500
+  pages, DOCX <=2,000 ZIP entries, <=20 MiB per expanded member and
+  <=80 MiB combined declared ZIP size. Stage 6/7 must enforce upload
+  stream limits *before* the input is materialized in memory. These limits
+  are conservative extraction-stage defenses, not an exhaustive sandbox.
+- Normalization: CRLF/CR to LF, trim leading/trailing whitespace; do not
+  collapse internal blank lines, transliterate, truncate or rewrite content.
+- Exception policy: `UnsupportedDocumentTypeError`, `EmptyDocumentError`,
+  `InvalidDocumentError`, `InvalidTextEncodingError`,
+  `CorruptedDocumentError`, `PasswordProtectedPdfError`,
+  `NoExtractableTextError`, `DocumentLimitError` and
+  `DocumentParsingError`. Avoid raw document bytes or filenames in errors
+  and logs; preserve causes via exception chaining.
+- Unit/integration coverage: 50 parametrized test cases in
+  `tests/test_document_extraction_service.py` covering TXT encoding,
+  PDF Persian ToUnicode text layers, multipage and empty PDFs, encrypted
+  and malformed PDFs, DOCX paragraphs/tables and bad ZIPs, limits, DI
+  discovery, independence from FastAPI/model and no temporary files.
+  PDF ToUnicode fixture is generated in memory using pypdf (synthetic
+  font), and is NOT a real-world embedded-font Persian PDF quality test.
+- Local isolated Python 3.13.5 sandbox (pypdf **5.9.0**, python-docx
+  **1.2.0**): `python -m compileall -q src tests` passed;
+  `python -m pytest -q tests/test_document_extraction_service.py`
+  **50 passed, 0 failed**; `-k smoke_ -s` **3 passed,
+  47 deselected**, producing Persian TXT/PDF/DOCX outputs.
+  The local workspace copied the DI/bootstrap components of the
+  repository but used a minimal ML-provider import stub to keep Stage-3
+  tests isolated; this is NOT a complete Stage 1/2 regression execution.
+- **Not Run**: `python -m pytest -q` on the complete HEAD and
+  pypdf >=6.21.2; `python -m pip check` on updated Windows environment;
+  real-world Persian PDF with embedded font; live HTTP regression on this
+  stage. The last recorded full Windows run on Stage 2 was **36 passed**
+  with a successful user-reported CPU inference and an earlier HTTP 200
+  liveness verification on port 8001; preserve that historical result.
+- Known issues: pypdf text ordering depends on font mappings and PDF
+  geometry; no OCR; image-only input yields no-extractable-text. Complex
+  DOCX drawing elements are not supported. The sandbox cannot fetch the
+  current dependency wheels or clone the full remote checkout.
+- Commit SHA: recorded in GitHub commit history (cannot include its own
+  hash in the commit's tracked file).
+- Stage 4 readiness: architecture/API are ready; Stage 3 can be marked
+  **Completed** after a full Windows dependency, regression and extraction
+  smoke verification, including a genuine Persian text PDF.
+- Sources:
+  https://pypi.org/project/pypdf/ ;
+  https://pypi.org/project/python-docx/ ;
+  https://pymupdf.io/licensing ;
+  https://github.com/py-pdf/pypdf/security/advisories ;
+  https://python-docx.readthedocs.io/en/latest/api/document.html .

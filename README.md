@@ -136,3 +136,56 @@ Invoke-RestMethod http://127.0.0.1:8001/api/v1/health
 ~~~
 
 Expected health JSON is {"status":"ok"}; Swagger is at http://127.0.0.1:8001/docs. Model metadata, revision, licensing and security considerations are in docs/STAGE2_MODEL_VERIFICATION.md. On Windows, if PowerShell blocks venv activation, run Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned and retry. Never commit model cache or tokens.
+
+## Stage 3: In-memory document extraction
+
+`DocumentExtractionService` is a Python service (not an HTTP endpoint). It
+accepts `bytes` and a filename, dispatches by the case-insensitive suffix
+`.txt`, `.pdf` or `.docx`, and returns normalized Unicode text. It does not
+call mT5, store documents, or create temporary files.
+
+```python
+from pathlib import Path
+from src.core.services.summarization.document_extraction_service import DocumentExtractionService
+
+path = Path("your-document.pdf")
+text = DocumentExtractionService().extract(path.read_bytes(), path.name)
+print(text)
+```
+
+TXT requires UTF-8 with or without a BOM; invalid UTF-8 or binary control
+characters fail explicitly. PDF extraction uses pypdf's layout mode to avoid
+reversing Persian text in the default plain mode, preserves page order and
+includes rotated text. Image-only/empty PDFs return `NoExtractableTextError`,
+not OCR. Encrypted PDFs return `PasswordProtectedPdfError`. DOCX extraction
+uses python-docx 1.2's `iter_inner_content()` for document-order paragraphs
+and tables, including nested tables. Legacy `.doc` is unsupported. Headers,
+footers, comments, text boxes, tracked changes, and embedded objects are not
+guaranteed to be extracted.
+
+Normalization: convert CRLF/CR to LF and trim document-edge whitespace;
+preserve internal blank lines, Persian/Arabic letters, zero-width non-joiners,
+punctuation, and numbers. Rejected input raises named, non-HTTP exceptions
+defined in the service module. Resource budgets: 20 MiB source, 5 million
+extracted characters, 500 PDF pages, 2,000 DOCX ZIP members, 20 MiB per
+uncompressed ZIP member and 80 MiB expanded DOCX total. **These are
+post-upload extraction guards**, not replacements for request-stream limits
+in Stage 6/7. PDFs with incomplete or incorrect Unicode maps may yield
+incorrect text and still require review with real Persian documents.
+
+To run the standalone real-parser integration smoke tests from the repository
+root, without an HTTP server or a model download:
+
+```bash
+python -m pytest -q -s tests/test_document_extraction_service.py -k smoke_
+```
+
+Expected: three passing TXT, PDF and DOCX smoke cases printing Persian text.
+The PDF sample has a generated Unicode ToUnicode map rather than a real
+embedded Persian font; this checks the parser contract but cannot establish
+accuracy across arbitrary third-party PDFs.
+
+For the full checks run `python -m compileall -q src tests` and
+`python -m pytest -q`. Stage 3 verification of the newly constrained pypdf
+version and existing Stage 1/2 regressions is pending on the target Windows
+environment; see `docs/IMPLEMENTATION_PROGRESS.md`.

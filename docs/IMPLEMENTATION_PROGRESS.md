@@ -6,15 +6,15 @@
 | --- | --- |
 | 1. Project Setup, DI & FastAPI | Completed |
 | 2. mT5 Model Integration | Completed |
-| 3. Document Extraction | In Progress |
+| 3. Document Extraction | Completed |
 | 4. Chunking & Long Text Summarization | Not Started |
 | 5. Main SummarizationService | Not Started |
 | 6. REST API & Upload Validation | Not Started |
 | 7. Testing, Security & Optimization | Not Started |
 | 8. Docker & Final Delivery | Not Started |
 
-- Last completed stage: **2**
-- Active stage: **3 (In Progress — Windows RTL verification passed with known font/glyph limitations; live HTTP smoke pending)**
+- Last completed stage: **3**
+- Active stage: **None (Stage 4 is next, Not Started)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -381,3 +381,53 @@ python -m pytest -q
 - **Stage 3 status: In Progress**, pending the agreed independent
   live health smoke and final assessment of the font-specific PDF
   fidelity limitations. Stage 4 code not started.
+
+## Stage 3 Final Acceptance — Windows Live HTTP Health (2026-10-24)
+
+- **Status: Completed.** Acceptance criteria from
+  `IMPLEMENTATION_PLAN.md` were reviewed against the current implementation
+  and the user's actual Windows test outputs. Stage 4 is **Not Started**.
+- User confirmed a fast-forward checkout of progress commit
+  `fd6e996ae75a8e5f6aec2db5afb89a2e526bc29a`, then launched
+  `python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001`
+  with `env_type=development` and the project virtual environment.
+- **Live HTTP smoke: Passed.** Uvicorn logged
+  `Application startup complete` and
+  `GET /api/v1/health HTTP/1.1" 200 OK`.
+  The response body was not copied in this particular log; the HTTP 200
+  status and completed startup are verified. Earlier automated health
+  checks verified the JSON contract, and a separate Stage 1 live run
+  previously observed the endpoint.
+- Windows/Python 3.12.10 automated verification on extraction code
+  commit `faf02694a405b5b512fd206a28df1f3b422b377d`:
+  `compileall` **Passed**; **57/57 Stage 3 tests passed**;
+  **93/93 full repository tests passed**; 1 non-blocking third-party
+  `StarletteDeprecationWarning`; the three TXT/PDF/DOCX smoke tests
+  had also passed on the preceding implementation baseline.
+  Subsequent two commits changed `docs/IMPLEMENTATION_PROGRESS.md`
+  only, not runtime/test source.
+- Real-world Persian PDF: **usable text successfully extracted**, with
+  correct logical-order titles and paragraphs after the RTL correction.
+  Preserve the **known non-blocking quality limitation**: select glyphs,
+  joining and spacing may be inaccurate (e.g. `سالمت`, `اطالعات`),
+  and full document-faithful reconstruction is not guaranteed.
+  No claim is made that extracted text is character-perfect for every PDF.
+- TXT UTF-8/BOM, PDFs including encrypted, malformed and no-text cases,
+  DOCX including Unicode tables/merged cells, format validation,
+  controlled extraction exceptions, in-memory processing, resource
+  guards, and absence of OCR claims are covered by implementation and
+  tests. The service remains independent of FastAPI UploadFile and
+  does not persist inputs.
+- **Changed files for this acceptance follow-up:**
+  `docs/IMPLEMENTATION_PROGRESS.md` only. **New dependencies: none.**
+- **Passed:** Windows compile, Stage 3 unit/integration suite,
+  full regression, real-world PDF usability verification and live HTTP
+  health smoke.
+- **Failed:** 0 in the reported automated test runs.
+- **Not Run:** exhaustive PDF font/glyph accuracy benchmark,
+  OCR/scanned PDF processing (outside MVP), model summarization
+  endpoint (future stage) and Stage 4 chunking tests (not implemented).
+- **Stage 4 readiness: Ready.** Implement token-aware chunking and
+  hierarchical summarization only upon a separate Stage 4 request.
+- Completion documentation commit SHA is available from GitHub history;
+  the SHA of a commit cannot be embedded in its own tree contents.

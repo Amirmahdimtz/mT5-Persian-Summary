@@ -157,7 +157,9 @@ def test_second_simultaneous_upload_gets_503_and_capacity_recovers():
             return _body()
 
         async def run(index):
-            await middleware(_scope(), receive, responses[index].append)
+            async def send(message):
+                responses[index].append(message)
+            await middleware(_scope(), receive, send)
 
         first = asyncio.create_task(run(0))
         await asyncio.wait_for(entered.wait(), 1)
@@ -188,7 +190,10 @@ def test_idle_upload_timeout_redacted_and_does_not_leak_capacity():
         async def blocked_receive():
             await asyncio.Event().wait()
 
-        await middleware(_scope(), blocked_receive, statuses.append)
+        async def record_timeout(message):
+            statuses.append(message)
+
+        await middleware(_scope(), blocked_receive, record_timeout)
         assert statuses[0]["status"] == 408
         bodies = [
             message["body"] for message in statuses
@@ -200,7 +205,10 @@ def test_idle_upload_timeout_redacted_and_does_not_leak_capacity():
             return _body()
 
         next_response = []
-        await middleware(_scope(), immediate_receive, next_response.append)
+        async def record_next(message):
+            next_response.append(message)
+
+        await middleware(_scope(), immediate_receive, record_next)
         assert next_response[0]["status"] == 200
 
     asyncio.run(scenario())

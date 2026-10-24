@@ -80,6 +80,7 @@ python -m pytest -q
 - Root cause: the discovery test accessed `route.path` on every item in `app.routes`; FastAPI returned an `_IncludedRouter` object without that attribute. Health HTTP and OpenAPI tests succeeded, indicating functional route discovery.
 - Correction: `tests/test_app.py` now checks the public `app.openapi()["paths"]` contract instead of router internals. No application code or dependencies changed.
 - Local regression validation: `python -m compileall -q src tests` passed; `python -m pytest -q` returned **16 passed, 0 failed** under Python 3.13.5, FastAPI 0.128.2.
-- Windows post-fix rerun on Python 3.12.10/FastAPI 0.162.0: **Not Run** (user must `git pull --ff-only origin main` and run tests).
+- Windows post-fix rerun on Python 3.12.10/FastAPI 0.162.0: **Passed**. User verified `git pull --ff-only origin main` (fast-forward to `c625028a251677f49499a741d8080bed66bab363`), `python -m compileall -q src tests` (no errors), and `python -m pytest -q` (**16 passed, 0 failed, 1 non-blocking StarletteDeprecationWarning in 10.41s**).
+- Windows HTTP smoke: `python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001` reached `Application startup complete` and served `GET /api/v1/health` with **HTTP 200 OK**. Swagger browser check on Windows was not reported.
 - Windows service start: `python -m src.host.app` failed to bind port 8000 (WinError 10048, address already in use). This is an external port collision, not an application import/DI failure. Alternative: `python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001`.
 - The third-party `starlette.testclient` deprecation warning is non-fatal; no dependency change was necessary for this correction.

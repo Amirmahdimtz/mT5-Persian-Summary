@@ -14,7 +14,7 @@
 | 8. Docker & Final Delivery | Not Started |
 
 - Last completed stage: **2**
-- Active stage: **3 (In Progress — target-runtime regression pending)**
+- Active stage: **3 (In Progress — automated Windows regression passed; real embedded-font Persian PDF and post-fix live HTTP smoke pending)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -241,3 +241,42 @@ python -m pytest -q
   Persian PDF with an embedded font. Keep Stage 3 **In Progress**.
 - Fix commit: consult the following GitHub commit history; a tracked
   file cannot include the SHA of the commit that contains it.
+
+## Stage 3 Follow-up — Windows Post-Fix Verification (2026-10-24)
+
+- Evidence: user-provided Windows PowerShell transcript, checked out at
+  `c9d29f3e49f45198f4b1f44e7da5ff24e733e169` with
+  `git pull --ff-only origin main` and `git rev-parse HEAD`.
+- Target environment: Windows PowerShell, activated project `.venv`,
+  Python 3.12.10; `pypdf 6.21.2` and `python-docx 1.2.0`
+  were confirmed installed during the immediately preceding Windows run;
+  `python -m pip check` previously returned no broken requirements.
+- `python -m compileall -q src tests`: **Passed** (no errors).
+- `python -m pytest -q tests/test_document_extraction_service.py`:
+  **52 passed, 0 failed**, 14.78 seconds.
+- `python -m pytest -q`: **88 passed, 0 failed**, 1 non-fatal
+  `StarletteDeprecationWarning`, 11.73 seconds. All 36 retained
+  Stage 1/2 automated regressions passed.
+- `python -m pytest -q -s tests/test_document_extraction_service.py -k smoke_`:
+  **3 passed, 49 deselected**, 2.48 seconds. Output confirms TXT,
+  synthetic text-layer PDF with Persian ToUnicode mapping, and DOCX
+  generated the expected Persian samples.
+- DOCX table-cell regression is **resolved** on Windows by retaining
+  `cell._tc` XML elements instead of storing `id(cell._tc)`; the
+  originally failing Unicode-table test now passes. Both new table
+  tests are included in the 52 Stage 3 tests.
+- Stage 3 automated tests, DI discovery, compatibility of pinned
+  extraction dependencies, and Stage 1/2 regressions: **Verified**.
+  The extra warning is third-party and not currently blocking.
+- **Not yet verified on this commit:** a representative real-world
+  Persian text-based PDF with embedded font and a live Uvicorn
+  `GET /api/v1/health` smoke run. The existing automated
+  TestClient health and OpenAPI tests pass as part of the full suite,
+  and a previous Stage 1 live HTTP smoke passed historically.
+- **Status: In Progress** until these remaining independent acceptance
+  checks are completed. Do not describe Stage 3 as Completed based
+  solely on the synthetic PDF sample. No code changes needed based
+  on the latest automated result.
+- Next step: perform a real embedded-font Persian PDF extraction
+  through `DocumentExtractionService` and recheck live HTTP health;
+  record results, then mark Stage 3 Completed if acceptable.

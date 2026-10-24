@@ -5,8 +5,14 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from starlette.responses import JSONResponse
 
+from src.application.summarization.upload_limit_middleware import (
+    UploadBodyLimitMiddleware,
+    configured_upload_budget,
+)
 from src.infrastructure.di.inject import inject
 from src.infrastructure.utils.config_reader import ConfigReader, ConfigurationError
 
@@ -29,6 +35,20 @@ class WebService:
             raise ConfigurationError("app.version must be a non-empty string")
 
         app = FastAPI(title=app_name, version=version)
+
+        @app.exception_handler(RequestValidationError)
+        async def request_validation_error_async(
+            request: Request, error: RequestValidationError
+        ) -> JSONResponse:
+            # FastAPI's default validation errors may include user-supplied `input`.
+            return JSONResponse(
+                status_code=422,
+                content={"detail": {
+                    "code": "RequestValidationError",
+                    "message": "Request fields or format are invalid.",
+                }},
+            )
+
         api_prefix = self._config_reader.get_api_prefix()
         application_dir = Path(__file__).resolve().parent
         for feature_dir in sorted(application_dir.iterdir()):
@@ -54,4 +74,9 @@ class WebService:
                     f"{module_name}.{class_name}.api() must return APIRouter"
                 )
             app.include_router(router, prefix=f"{api_prefix}/{feature}")
+        app.add_middleware(
+            UploadBodyLimitMiddleware,
+            api_prefix=api_prefix,
+            max_total_bytes=configured_upload_budget(self._config_reader),
+        )
         return app

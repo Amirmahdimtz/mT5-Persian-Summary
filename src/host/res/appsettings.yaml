@@ -6,6 +6,8 @@ server:
   port: 8000
 api:
   prefix: "/api/v1"
+  upload:
+    max_total_bytes: 33554432  # 32 MiB aggregate document bytes per request.
 model:
   id: "nafisehNik/mt5-persian-summary"
   revision: "b575560ad967050e77a40f907abb1ebbeefb9a15"

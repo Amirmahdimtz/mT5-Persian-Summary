@@ -1,6 +1,6 @@
 # mT5 Persian Summarization Service
 
-Stage 1 provides a runnable FastAPI application, configuration reader, convention-based constructor dependency injection, controller auto discovery, and a health check. Stage 2 adds a lazy ML provider but still does **not** expose summarization endpoints.
+Stages 1–5 provide the FastAPI/DI foundation, lazy mT5 provider, document extraction and summarization orchestration. Stage 6 exposes the REST API for Persian text and documents.
 
 ## Requirements
 
@@ -356,3 +356,87 @@ hierarchy work budget, 64 chunk limit, six hierarchy levels and 128 model
 calls remain unchanged. Callers must apply upload-size limits while reading
 streams in Stage 6/7, before passing any bytes to this service. PDFs without
 extractable text remain unsupported; OCR is not provided.
+
+## Stage 6: Summarization REST API and upload safety
+
+All routes use the configured `api.prefix` (default `/api/v1`); Swagger is at `/docs` and OpenAPI JSON at `/openapi.json`. Controller discovery and constructor `@inject` connect the HTTP layer to the existing `SummarizationService`; no model weights load during startup. Model inference happens only for processable documents.
+
+| Method | Route | Body | Success |
+|---|---|---|---|
+| POST | `/api/v1/summarization/text` | JSON `text`, optional `summary_length` | 200: `summary`, `summary_length`, `input_characters`, `output_characters` |
+| POST | `/api/v1/summarization/file` | multipart `file`, optional `summary_length` | 200: `filename`, `summary_length`, `success`, `summary`, character counts, nullable errors |
+| POST | `/api/v1/summarization/files` | repeated multipart `files`, optional `summary_length` | 200: ordered `results` with `succeeded` and `failed` |
+
+`summary_length` is exactly `short`, `medium` (default) or `long`.
+`text` must be a nonempty string, not just whitespace, at most 200,000 characters.
+TXT requires UTF-8 (optional BOM); only text-based PDFs and DOCX are supported, not OCR.
+Valid upload media types match the file extension, or may be `application/octet-stream` or absent. Filenames must be safe basenames, up to 255 characters.
+
+**Resource policy:** 20 MiB per file (the existing extraction limit); 1–32 files per batch (the existing Core limit); configurable **32 MiB aggregate file bytes per request** via `api.upload.max_total_bytes` in both appsettings YAML files (integer 20–64 MiB, default 33554432). File content is read in at most 64 KiB per call and bounded by both limits. An ASGI middleware first caps the entire multipart wire body at aggregate budget plus 1 MiB framing allowance **without trusting Content-Length**. To return HTTP 413 before multipart parsing, it spools at most 1 MiB in RAM and the remaining permitted raw body into an automatically closed temporary spool file; Starlette's `UploadFile` separately uses spooling and may also touch temporary disk. Files are never stored permanently by application code. Source bytes are held in RAM for Stage 5's existing in-memory `DocumentInput` contract; the per-request aggregate budget makes that predictable. This is not a reverse-proxy-wide connection or concurrency limit; Stage 7 will revisit multi-request admission and memory profiling.
+
+**Error contract:** for application errors, `{"detail":{"code":"...","message":"..."}}`, with fixed sanitized messages (no parser/model exception strings or document bodies). `400`: invalid filename, empty upload or malformed multipart; `413`: request/per-file/aggregate/processing limit; `415`: unsupported extension or media type; `422`: invalid JSON, missing fields, invalid text/length or corrupted/unextractable document; `500`: model inference failure, empty output or unexpected service result; `503`: model initialization unavailable. Unexpected programming exceptions propagate to the framework, not disguised as known document errors. For multipart collection-level validation failure, no inference is attempted. For a valid batch, every document has an independent `success`, `error_code` and safe `error_message`; ordered results keep duplicate filenames and partial/all-file failures return **HTTP 200**. Only successful items contain a non-null summary and counts.
+
+Example JSON request and response (illustrative schema, not a live model result):
+
+```json
+{"text":"این یک متن فارسی برای خلاصه‌سازی است.","summary_length":"short"}
+```
+
+```json
+{"summary":"خلاصه فارسی","summary_length":"short","input_characters":37,"output_characters":11}
+```
+
+The counts above are illustrative; actual counts are computed by the Core service from the actual input and generated summary. Successful single-file response follows this structure:
+
+```json
+{"filename":"sample.txt","summary_length":"medium","success":true,"summary":"خلاصه فارسی","input_characters":100,"output_characters":11,"error_code":null,"error_message":null}
+```
+
+Failed item in a valid multi-file response:
+
+```json
+{"filename":"bad.pdf","summary_length":"medium","success":false,"summary":null,"input_characters":null,"output_characters":null,"error_code":"InvalidDocumentError","error_message":"Document could not be summarized; see error_code."}
+```
+
+### Stage 6 Windows PowerShell verification
+
+Open PowerShell in the repository, not in a different project's virtual environment:
+
+```powershell
+Set-Location -LiteralPath 'E:\\Amirmahdi_mtz\\Military Service\\mT5-Persian-Summary'
+git pull --ff-only origin main
+git rev-parse HEAD
+git status --short
+if (!(Test-Path -LiteralPath '.venv\\Scripts\\python.exe')) { py -3.12 -m venv .venv }
+& '.\\.venv\\Scripts\\Activate.ps1'
+$env:env_type = 'development'
+python --version
+python -m pip install -r requirements.txt
+python -m pip check
+python -m compileall -q src tests
+python -c "from src.infrastructure.di.bootstrap import bootstrap_di; from src.infrastructure.di.inject import resolve; from src.application.summarization.summarization_controller import SummarizationController; from src.core.services.summarization.summarization_service import SummarizationService; bootstrap_di(); assert resolve(SummarizationController); assert resolve(SummarizationService); print('DI OK')"
+python -m pytest -q tests/test_summarization_api.py
+python -m pytest -q
+python -m pytest -q -s tests/test_document_extraction_service.py -k smoke_
+python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001
+```
+
+In a second PowerShell window, with the service running:
+
+```powershell
+$base = 'http://127.0.0.1:8001'
+Invoke-RestMethod "$base/api/v1/health"
+Invoke-RestMethod "$base/openapi.json" | Select-Object -ExpandProperty paths
+Start-Process "$base/docs"
+$body = @{ text='این یک متن فارسی برای خلاصه‌سازی است.'; summary_length='short' } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri "$base/api/v1/summarization/text" -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+Set-Content -LiteralPath '.\\sample.txt' -Value 'این یک نمونه متن فارسی برای خلاصه سازی است.' -Encoding utf8
+Set-Content -LiteralPath '.\\invalid.pdf' -Value 'not a PDF' -Encoding ascii
+curl.exe -sS -i -X POST "$base/api/v1/summarization/file" -F "file=@sample.txt;type=text/plain" -F "summary_length=medium"
+curl.exe -sS -i -X POST "$base/api/v1/summarization/files" -F "files=@sample.txt;type=text/plain" -F "files=@invalid.pdf;type=application/pdf" -F "summary_length=short"
+curl.exe -sS -i -X POST "$base/api/v1/summarization/file" -F "file=@invalid.pdf;type=application/pdf"
+```
+
+Expected: `GET /health` returns HTTP 200 with `{"status":"ok"}`; Swagger and OpenAPI expose the three POST routes; text and valid TXT return HTTP 200 with typed summaries when the real model succeeds; a corrupt single PDF returns 422; a valid multipart batch returns HTTP 200 with one result per input position, even if some/all files fail. Real-model output quality is not guaranteed; a prior smoke produced only `.`. Delete `sample.txt` and `invalid.pdf` when finished.
+
+Stage 6 HTTP tests use fake Core services and do not download mT5 weights. A real model/API smoke is optional and separate from pytest regression.

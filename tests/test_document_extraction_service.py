@@ -216,6 +216,33 @@ def test_docx_table_and_unicode(extractor: DocumentExtractionService) -> None:
     assert "کتاب\t۲" in result
 
 
+def test_docx_table_keeps_all_distinct_cells(extractor: DocumentExtractionService) -> None:
+    doc = Document()
+    grid = doc.add_table(rows=3, cols=3)
+    for row_index, row in enumerate(grid.rows):
+        for col_index, cell in enumerate(row.cells):
+            cell.text = f"ردیف{row_index}ستون{col_index}"
+    buffer = BytesIO()
+    doc.save(buffer)
+    expected = "\n".join(
+        "\t".join(f"ردیف{row}ستون{column}" for column in range(3))
+        for row in range(3)
+    )
+    for _ in range(10):
+        assert extractor.extract_docx(buffer.getvalue()) == expected
+
+
+def test_docx_merged_cells_not_duplicated(extractor: DocumentExtractionService) -> None:
+    doc = Document()
+    grid = doc.add_table(rows=2, cols=2)
+    grid.cell(0, 0).merge(grid.cell(0, 1)).text = "عنوان"
+    grid.cell(1, 0).text = "کتاب"
+    grid.cell(1, 1).text = "۲"
+    buffer = BytesIO()
+    doc.save(buffer)
+    assert extractor.extract_docx(buffer.getvalue()) == "عنوان\nکتاب\t۲"
+
+
 def test_docx_empty(extractor: DocumentExtractionService) -> None:
     with pytest.raises(NoExtractableTextError):
         extractor.extract_docx(docx_bytes())

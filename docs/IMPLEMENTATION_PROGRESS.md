@@ -204,3 +204,40 @@ python -m pytest -q
   https://pymupdf.io/licensing ;
   https://github.com/py-pdf/pypdf/security/advisories ;
   https://python-docx.readthedocs.io/en/latest/api/document.html .
+
+## Stage 3 Follow-up — Windows DOCX Table Regression (2026-10-24)
+
+- User-provided Windows PowerShell validation on `bd60bb6bbe3f85f3a333fb44d701b8e70983d7d2`:
+  Python **3.12.10**, `pypdf 6.21.2`, `python-docx 1.2.0`,
+  `python -m pip check` **Passed**, `compileall` **Passed**.
+  Stage 3: **49 passed, 1 failed**; complete repository suite:
+  **85 passed, 1 failed**, one non-blocking StarletteDeprecationWarning;
+  all 36 prior Stage 1/2 tests passed.
+- Failure: `test_docx_table_and_unicode` expected `کتاب\t۲` but
+  saw only `کتاب`. No input data loss in Word file; it was introduced
+  by the DOCX table extractor's duplicate-cell detection.
+- Root cause: `id(cell._tc)` identifies a temporary lxml wrapper whose
+  integer ID may be reused after garbage collection. Distinct table
+  cells then appear identical and are silently discarded.
+- Minimal fix: retain the underlying `cell._tc` XML elements as values
+  in `seen_cells: set[object]`, rather than storing integers returned
+  by `id()`. True merged cells are still deduplicated.
+- Added regression tests: 3x3 Persian table requiring every distinct
+  cell, repeated ten times; and a merged-cell case checking no duplicate
+  text. Before the fix, the 3x3 test **failed** in isolated Python 3.13.5
+  with missing rows/cells; after the fix, both new tests passed.
+- Isolated Linux/Python 3.13.5 verification with `pypdf 5.9.0` and
+  `python-docx 1.2.0`: `python -m compileall -q src tests` **Passed**;
+  Stage 3 `pytest` **52 passed, 0 failed**; TXT/PDF/DOCX
+  smoke tests **3 passed, 49 deselected**. This was an isolated
+  workspace, not a complete Checkout / Stage 1/2 regression run.
+- Updated files in this follow-up: `src/core/services/summarization/document_extraction_service.py`,
+  `tests/test_document_extraction_service.py`, and
+  `docs/IMPLEMENTATION_PROGRESS.md`. No dependencies or Stage 1/2
+  components changed.
+- **Pending before Stage 3 Completed:** user rerun of the complete
+  Windows suite (expected 88 collected tests, actual result pending),
+  full health smoke on this commit, and a representative genuine
+  Persian PDF with an embedded font. Keep Stage 3 **In Progress**.
+- Fix commit: consult the following GitHub commit history; a tracked
+  file cannot include the SHA of the commit that contains it.

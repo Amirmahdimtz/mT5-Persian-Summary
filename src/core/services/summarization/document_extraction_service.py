@@ -179,12 +179,13 @@ class DocumentExtractionService:
         if isinstance(item, Paragraph):
             return item.text
         rows: list[str] = []
-        seen_cells: set[int] = set()
+        seen_cells: set[object] = set()
         for row in item.rows:
             cells: list[str] = []
             for cell in row.cells:
-                # Merged cells can occur several times in row.cells.
-                identity = id(cell._tc)
+                # Retain XML elements: id(cell._tc) can be reused for a later
+                # cell when a transient lxml wrapper is garbage-collected.
+                identity = cell._tc
                 if identity in seen_cells:
                     continue
                 seen_cells.add(identity)

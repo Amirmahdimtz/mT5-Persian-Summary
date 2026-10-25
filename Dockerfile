@@ -13,12 +13,14 @@ WORKDIR /app
 # Install CPU-only PyTorch first to avoid accidentally resolving CUDA wheels.
 # Keep the dependency layer independent of application source changes.
 COPY requirements.txt ./requirements.txt
-# A longer socket timeout handles large CPU wheels on slower connections.
-# BuildKit's pip cache survives rebuilds without becoming part of the image.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python -m pip install --timeout 180 --retries 8 'torch>=2.6,<3.0' \
-        --index-url https://download.pytorch.org/whl/cpu \
-    && python -m pip install --timeout 180 --retries 8 -r requirements.txt \
+# pip >=25.2 can resume interrupted large downloads. Isolate the cache from
+# prior failed wheel responses; do not bypass PyTorch wheel hash verification.
+RUN --mount=type=cache,id=mt5-pip-v2,target=/root/.cache/pip,sharing=locked \
+    python -m pip install --timeout 180 --retries 8 --upgrade 'pip>=25.2,<27' \
+    && python -m pip install --timeout 180 --retries 8 --resume-retries 12 \
+        'torch>=2.6,<3.0' --index-url https://download.pytorch.org/whl/cpu \
+    && python -m pip install --timeout 180 --retries 8 --resume-retries 12 \
+        -r requirements.txt \
     && python -m pip check
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \

@@ -1,27 +1,27 @@
-# خلاصه‌سازی متن و اسناد فارسی با mT5
+# Persian Text and Document Summarization with mT5
 
 **Persian Document Summarization REST API · FastAPI · mT5 · Docker**
 
-این پروژه متن فارسی یا فایل‌های `TXT`، `PDF` متنی و `DOCX` را دریافت می‌کند و با مدل [`nafisehNik/mt5-persian-summary`](https://huggingface.co/nafisehNik/mt5-persian-summary) یک **خلاصه فارسی** برمی‌گرداند. امکان ارسال چند فایل در یک درخواست وجود دارد و **برای هر فایل خلاصه جداگانه** تولید می‌شود.
+This project accepts Persian text or `TXT`, text-based `PDF`, and `DOCX` documents and returns a Persian summary using [`nafisehNik/mt5-persian-summary`](https://huggingface.co/nafisehNik/mt5-persian-summary). It also supports multiple documents in a single request, returning **a separate summary for each file**.
 
-> **وضعیت: MVP قابل اجرا و تست‌شده.** اجرای موفق API به معنی صحیح‌بودن همه خلاصه‌ها نیست. مدل ممکن است نکات مهم را حذف کند، اطلاعات را اشتباه بازگو کند یا برای اسناد بلند خلاصه‌ای بیش‌ازحد کوتاه بسازد. **قبل از استفاده مدیریتی یا سازمانی، خلاصه را با سند اصلی تطبیق دهید.**
+> **Status: completed and tested MVP.** A successful API response does **not** guarantee a faithful summary. The model can omit important details, misstate facts, or generate an excessively short summary for a long document. **Always compare the generated summary with the original source before business or organizational use.**
 
-## برای شروع چه چیزی لازم است؟
+## Requirements at a glance
 
-| مورد | توضیح |
+| Item | Details |
 | --- | --- |
-| سریع‌ترین اجرا | Docker Desktop / Docker Engine و Image آماده در GHCR |
-| بدون Docker | Python 3.12 و نصب `requirements.txt` |
-| سخت‌افزار | مدل فعلاً روی **CPU** اجرا می‌شود؛ برای Docker حدود **8 GiB حافظه در دسترس** در نظر بگیرید (برآورد اولیه، نه اندازه‌گیری Peak RAM) |
-| اینترنت | برای دریافت Image و دانلود اولیه وزن‌های مدل از Hugging Face، مگر اینکه فایل‌های موردنیاز قبلاً Cache شده باشند |
-| کار با سرویس | Swagger در `/docs` یا درخواست HTTP به REST API |
-| فرمت‌های مجاز | `.txt` با UTF-8، `.pdf` دارای متن قابل استخراج، `.docx`؛ فایل اسکن‌شده/OCR پشتیبانی نمی‌شود |
+| Fastest setup | Docker Desktop or Docker Engine and the prebuilt image on GitHub Container Registry (GHCR) |
+| Run from source | Python 3.12 and `requirements.txt` |
+| Hardware | Inference currently runs on **CPU**; initially budget around **8 GiB of available memory** for Docker (engineering estimate, not measured peak usage) |
+| Internet access | Required to pull the image and download the model weights from Hugging Face on first use, unless already cached |
+| Interface | Interactive Swagger UI at `/docs`, or a regular HTTP REST API |
+| Supported files | UTF-8 `.txt`, text-extractable `.pdf`, and `.docx`; scanned documents/OCR are not supported |
 
-**مسیر پیشنهادی:** اگر فقط می‌خواهید مدل را امتحان کنید، بخش «اجرای سریع با Docker» را انجام دهید؛ نیازی به نصب Python یا کلون‌کردن Repository نیست.
+**Recommended:** If you just want to try the service, follow the Docker quick start. You do not need to clone the repository or install Python.
 
-## ۱. اجرای سریع با Docker (پیشنهادی)
+## 1. Quick start with Docker (recommended)
 
-Image آماده در GitHub Container Registry قرار دارد؛ به ساخت محلی Docker Image احتیاج ندارید. روی **همان کامپیوتری** که می‌خواهید API را امتحان کنید، Docker را روشن و در PowerShell اجرا کنید:
+A prebuilt image is available through GHCR. Start Docker on the machine where you want to use the API, then run these commands in **Windows PowerShell**. The same `docker` commands work in a Linux/macOS shell.
 
 ```powershell
 docker pull ghcr.io/amirmahdimtz/mt5-persian-summary:stage8
@@ -31,13 +31,13 @@ docker volume create mt5_hf_cache
 docker run -d --name mt5-persian-summary --init --memory 8g --cpus 2 --pids-limit 256 --security-opt no-new-privileges -p 127.0.0.1:8002:8000 -v mt5_hf_cache:/home/app/.cache/huggingface -e env_type=production ghcr.io/amirmahdimtz/mt5-persian-summary:stage8
 ```
 
-- `8002` پورت **کامپیوتر شما** و `8000` پورت **داخل Container** است؛ این عدد را در تمام نمونه‌های Docker همین راهنما استفاده کرده‌ایم.
-- `127.0.0.1` یعنی سرویس فقط از کامپیوتر میزبان قابل دسترسی است؛ لینک آن روی سیستم همکار یا گوشی دیگر کار نمی‌کند.
-- Volume با نام `mt5_hf_cache` وزن‌های دانلودشده را بین اجرای مجدد Container حفظ می‌کند.
-- Image وزن‌های mT5 را داخل خود ندارد. **اولین درخواست واقعی خلاصه‌سازی** ممکن است برای دانلود Checkpoint حدود ۱٫۲ گیگابایتی و بارگذاری مدل زمان‌بر باشد.
-- اگر Container با همین نام قبلاً ساخته شده و متوقف است، به‌جای `docker run` از `docker start mt5-persian-summary` استفاده کنید؛ اگر فعال است نیازی به ساخت مجدد نیست.
+- `8002` is the **host port**, while `8000` is the **container port**. All Docker examples below use host port `8002`.
+- Binding to `127.0.0.1` makes the API accessible **only from the host machine**, not directly from another laptop or phone.
+- The `mt5_hf_cache` Docker volume retains downloaded model files across container restarts.
+- **Model weights are not packaged into the Docker image.** The first real summarization request may take longer while downloading the approximately **1.2 GB checkpoint** and loading it into memory.
+- If the container already exists but is stopped, use `docker start mt5-persian-summary` rather than running a second container with the same name. If it is running, you do not need to recreate it.
 
-بررسی وضعیت:
+Check the container and HTTP health:
 
 ```powershell
 docker ps --filter name=mt5-persian-summary
@@ -45,37 +45,37 @@ docker inspect --format '{{json .State.Health}}' mt5-persian-summary
 curl.exe -i http://127.0.0.1:8002/api/v1/health
 ```
 
-پس از آماده‌شدن سرویس انتظار می‌رود `healthy` و پاسخ زیر را ببینید:
+Once startup is complete, Docker should report `healthy` and the API should return HTTP `200` with:
 
 ```json
 {"status":"ok"}
 ```
 
-**توجه:** Health فقط زنده‌بودن HTTP را نشان می‌دهد و تضمین نمی‌کند مدل دانلود یا آماده Inference شده باشد. بارگذاری مدل با نخستین درخواست خلاصه‌سازی بررسی می‌شود.
+**Important:** `/api/v1/health` checks HTTP/process **liveness**, not model readiness. It does not confirm that the model has downloaded or can generate a summary.
 
-برای بازکردن Swagger در مرورگر ویندوز، **این دستور** را در PowerShell اجرا کنید:
+Open the Swagger UI in your Windows browser:
 
 ```powershell
 Start-Process "http://127.0.0.1:8002/docs"
 ```
 
-یا آدرس `http://127.0.0.1:8002/docs` را **در نوار آدرس مرورگر** وارد کنید؛ URL را به‌تنهایی مثل یک فرمان در PowerShell ننویسید.
+Alternatively, enter `http://127.0.0.1:8002/docs` directly into your browser's address bar. A URL by itself is **not** a PowerShell command.
 
-## ۲. اولین تست در Swagger، بدون کدنویسی
+## 2. Try it in Swagger without writing code
 
-در صفحه `http://127.0.0.1:8002/docs` سه عملیات اصلی می‌بینید:
+The Swagger page at `http://127.0.0.1:8002/docs` exposes three endpoints:
 
-| Endpoint | چه کاری انجام می‌دهد؟ | ورودی |
+| Endpoint | Purpose | Input |
 | --- | --- | --- |
-| `POST /api/v1/summarization/text` | خلاصه‌کردن یک متن فارسی | JSON با `text` و `summary_length` |
-| `POST /api/v1/summarization/file` | خلاصه‌کردن **یک فایل** | انتخاب فایل و طول خلاصه |
-| `POST /api/v1/summarization/files` | خلاصه‌کردن **چند فایل جداگانه** | چند فایل و طول خلاصه |
+| `POST /api/v1/summarization/text` | Summarize Persian text pasted directly into a request | JSON: `text` and `summary_length` |
+| `POST /api/v1/summarization/file` | Summarize **one document** | One uploaded file and an optional length |
+| `POST /api/v1/summarization/files` | Summarize **several documents independently** | Multiple uploaded files and an optional length |
 
-### تست متن
+### Summarize text
 
-۱. بخش `POST /api/v1/summarization/text` را باز و روی **Try it out** کلیک کنید.
-۲. متن زیر را در `Request body` بگذارید.
-۳. روی **Execute** کلیک کنید و `Response body` را ببینید.
+1. Expand `POST /api/v1/summarization/text` and select **Try it out**.
+2. Paste this request into **Request body**.
+3. Click **Execute** and inspect **Response body**.
 
 ```json
 {
@@ -84,38 +84,42 @@ Start-Process "http://127.0.0.1:8002/docs"
 }
 ```
 
-در صورت موفقیت، HTTP `200` و فیلد `summary` برمی‌گردد. متن داخل `summary` خروجی مدل است؛ مقدار آن از قبل ثابت یا تضمین‌شده نیست.
+For a successful request, expect HTTP `200` and a `summary` field containing the generated Persian text. There is **no single predetermined summary** for this sample.
 
-### تست یک PDF یا Word
+### Upload one PDF, Word, or TXT file
 
-۱. `POST /api/v1/summarization/file` را باز کنید و **Try it out** را بزنید.
-۲. در `file` روی **Choose File** بزنید و یک فایل `TXT`، `PDF` متنی یا `DOCX` انتخاب کنید.
-۳. `summary_length` را روی `medium` بگذارید و **Execute** را بزنید.
-۴. در پاسخ، `success: true` و `summary` را بررسی کنید.
+1. Expand `POST /api/v1/summarization/file` and select **Try it out**.
+2. Use **Choose File** under `file` to select a `TXT`, text-based `PDF`, or `DOCX` document.
+3. Set `summary_length` to `medium` and click **Execute**.
+4. Inspect the `summary` and `success: true` fields in the response.
 
-**PDF متنی** فایلی است که بتوانید نوشته‌های داخل آن را انتخاب/کپی کنید. PDF صرفاً تصویری، OCR ندارد و در این MVP پردازش نمی‌شود.
+A **text-based PDF** contains selectable/extractable text. An image-only scanned PDF is **not supported**, because OCR is outside this MVP.
 
-### تست چند فایل
+### Upload multiple files
 
-در `POST /api/v1/summarization/files` از **Try it out** استفاده کنید و چند فایل انتخاب کنید. خروجی دارای `results`، `succeeded` و `failed` است؛ هر آیتم نتیجه فایل خودش را دارد. این عملیات **یک خلاصه مشترک از همه فایل‌ها** تولید نمی‌کند. حتی اگر HTTP `200` باشد، ممکن است بعضی فایل‌ها `success: false` داشته باشند؛ همه آیتم‌ها را بررسی کنید.
+Open `POST /api/v1/summarization/files`, choose several files, and click **Execute**. The result includes `results`, `succeeded`, and `failed`. **Each file receives its own result**; this endpoint does **not** merge all documents into one combined summary.
 
-## ۳. طول خلاصه: short، medium، long
+Even with HTTP `200`, individual items can have `success: false`. Always inspect each result.
 
-`summary_length` مقدار اختیاری دارد و پیش‌فرض آن `medium` است:
+## 3. Summary length: short, medium, long
 
-| مقدار | سقف توکن تولید مدل برای هر فراخوانی |
+The optional `summary_length` field defaults to `medium`:
+
+| Value | Maximum generated tokens per model call |
 | --- | ---: |
 | `short` | 40 |
 | `medium` | 80 |
 | `long` | 120 |
 
-**این اعداد سقف هستند، نه تعداد کلمات و نه طول تضمین‌شده خروجی.** مدل ممکن است زودتر تولید را تمام کند و حتی در هر سه حالت خروجی یکسانی بدهد. برای یک PDF آزمایشی هشت‌صفحه‌ای با **۱۸٬۰۵۲ کاراکتر ورودی**، هر دو حالت `medium` و `long` خلاصه‌ای **یکسان و تنها ۱۱۳ کاراکتری** تولید کردند. بنابراین تغییر مقدار به `long` الزاماً مشکل کوتاه‌بودن خلاصه سند بلند را رفع نمی‌کند.
+These are **upper bounds, not word counts or guaranteed output lengths**. Generation may end earlier, producing the same summary for different values.
 
-## ۴. استفاده از API بدون Swagger
+For example, a user tested an **eight-page PDF with 18,052 extracted characters**. Both `medium` and `long` returned the **same 113-character summary**. Therefore, choosing `long` does not necessarily solve under-summarization of long documents.
 
-آدرس پایه Docker در این راهنما: `http://127.0.0.1:8002`.
+## 4. Call the REST API directly
 
-### PowerShell: ارسال متن فارسی
+The Docker base URL used here is `http://127.0.0.1:8002`.
+
+### PowerShell: summarize Persian text
 
 ```powershell
 $body = @{
@@ -126,25 +130,27 @@ $body = @{
 Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8002/api/v1/summarization/text' -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
 ```
 
-### PowerShell: ارسال یک فایل
+### PowerShell: upload one file
 
-فایل `sample.pdf` باید واقعاً در پوشه فعلی وجود داشته باشد؛ نام آن را متناسب با فایل خود تغییر دهید:
+Replace `sample.pdf` with the path to a **real file** on your machine:
 
 ```powershell
 curl.exe -F 'file=@sample.pdf;type=application/pdf' -F 'summary_length=medium' http://127.0.0.1:8002/api/v1/summarization/file
 ```
 
-### PowerShell: ارسال چند فایل
+### PowerShell: upload multiple files
+
+Both sample files must exist in the current directory or be referenced by their full paths:
 
 ```powershell
 curl.exe -F 'files=@sample.txt;type=text/plain' -F 'files=@sample.docx;type=application/vnd.openxmlformats-officedocument.wordprocessingml.document' -F 'summary_length=long' http://127.0.0.1:8002/api/v1/summarization/files
 ```
 
-**نکته:** برای درخواست `multipart/form-data` با `curl -F`، هدر `Content-Type` را دستی تنظیم نکنید؛ `curl` آن را به‌همراه Boundary می‌سازد.
+When using `curl -F`, **do not set the multipart `Content-Type` header manually**. Curl automatically includes the necessary boundary.
 
-### Linux/macOS: نمونه با curl
+### Linux/macOS: curl examples
 
-پس از اجرای Container روی همان میزبان (با همان Port Mapping):
+After starting the Docker container with the same port mapping:
 
 ```bash
 curl --fail-with-body -H 'Content-Type: application/json; charset=utf-8' \
@@ -155,28 +161,28 @@ curl --fail-with-body -F 'file=@sample.txt;type=text/plain' -F 'summary_length=m
   http://127.0.0.1:8002/api/v1/summarization/file
 ```
 
-### معنی پاسخ‌ها
+### Understand the responses
 
-- در `/text` فیلدهای اصلی `summary`، `summary_length`، `input_characters` و `output_characters` هستند.
-- در `/file` فیلدهای `filename`، `success`، `summary`، `error_code` و `error_message` نیز وجود دارند.
-- در `/files`، آرایه `results` و تعداد `succeeded` و `failed` را بررسی کنید.
-- `input_characters` تعداد کاراکتر متن ورودی استخراج‌شده و `output_characters` تعداد کاراکتر خلاصه است؛ این مقادیر **شاخص صحت معنایی** نیستند.
+- `/text` returns `summary`, `summary_length`, `input_characters`, and `output_characters`.
+- `/file` additionally returns `filename`, `success`, `error_code`, and `error_message`.
+- `/files` returns a `results` array plus `succeeded` and `failed` counts.
+- `input_characters` is the length of the source text after extraction; `output_characters` is the length of the generated summary. **Neither measures factual accuracy.**
 
-## ۵. مدل چیست و پروژه چگونه کار می‌کند؟
+## 5. About the model and processing pipeline
 
-- **مدل انتخابی:** [`nafisehNik/mt5-persian-summary`](https://huggingface.co/nafisehNik/mt5-persian-summary)، با Revision ثابت `b575560ad967050e77a40f907abb1ebbeefb9a15`. مدل از خانواده **mT5** با معماری **Encoder–Decoder Transformer** است و طبق توضیحات منتشرکننده برای خلاصه‌سازی اخبار فارسی Fine-tune شده است.
-- **آموزش مدل:** این Repository مدل را از ابتدا آموزش نمی‌دهد و خودش Fine-tuning انجام نمی‌دهد؛ مدل آماده را در سرویس FastAPI به کار می‌گیرد. وزن‌های FP32 حدود **۱٫۲ GB** حجم دارند و تعداد پارامترها تقریباً **۳۰۰ میلیون** برآورد شده، نه شمارش قطعی.
-- **جریان پردازش:** `HTTP request → Text extraction (for files) → Token-aware chunking → Hierarchical summarization (for long inputs) → mT5 inference → JSON response`.
-- **متن بلند:** متن‌های بلند بر اساس توکن تقسیم می‌شوند؛ قطعه‌ها خلاصه شده و در صورت نیاز خلاصه‌های میانی دوباره ترکیب/خلاصه می‌شوند. محدودیت‌های پردازشی ممکن است در متن‌های بسیار بزرگ به خطای صریح منجر شوند.
-- **نحوه اجرا:** بارگذاری مدل به‌صورت Lazy و یک‌بار در هر Process انجام می‌شود؛ نسخه Docker روی **CPU و یک Uvicorn worker** تنظیم شده است.
-- **Tokenizer و تولید:** `SentencePiece` و Hugging Face `Transformers`؛ تنظیمات فعلی `num_beams=2`، `do_sample=False`، `early_stopping=True` و سقف ورودی مدل **۱۰۰۰ توکن در هر قطعه** است.
-- **مجوز مدل:** Model Card مجوز **MIT** را اعلام می‌کند؛ حقوق داده‌های آموزش و مجوز بازنشر کد این Repository باید مستقل بررسی شوند. در Revision فعلی Repository، فایل `LICENSE` جداگانه وجود ندارد.
+- **Checkpoint:** [`nafisehNik/mt5-persian-summary`](https://huggingface.co/nafisehNik/mt5-persian-summary), pinned to revision `b575560ad967050e77a40f907abb1ebbeefb9a15`. It belongs to the **mT5 encoder-decoder Transformer** family and is described by its publisher as fine-tuned for Persian news summarization.
+- **Not a training repository:** This project does not train mT5 from scratch or perform additional fine-tuning. It integrates an existing checkpoint into a FastAPI service. The FP32 weights are approximately **1.2 GB**; the frequently cited **~300 million parameters** is an estimate, not a verified parameter count.
+- **Processing pipeline:** `HTTP request → Text extraction (for files) → Token-aware chunking → Hierarchical summarization (for long inputs) → mT5 inference → JSON response`.
+- **Long documents:** Text is divided into token-aware chunks; intermediate summaries are combined and may be summarized again. Extremely large inputs can still hit explicit processing budgets and fail rather than silently processing without limits.
+- **Runtime:** The model loads lazily, once per process. The supplied Docker image uses **CPU inference and one Uvicorn worker**.
+- **Tokenization and decoding:** SentencePiece and Hugging Face Transformers. Current generation settings include `num_beams=2`, `do_sample=False`, `early_stopping=True` and a limit of **1,000 input tokens per model chunk**.
+- **Licensing:** The model card declares **MIT** for the model; downstream training-data rights should be reviewed separately. The repository's own code redistribution rights require separate verification: **there is no root `LICENSE` file in the currently checked revision**.
 
-پیکربندی اصلی: `src/host/res/appsettings.yaml`؛ محیط توسعه: `src/host/res/appsettings.development.yaml`. این فایل‌ها منبع واقعی تنظیمات مدل هستند؛ نام‌هایی مثل `MODEL_ID` را به‌عنوان Environment Variable پشتیبانی‌شده فرض نکنید.
+Source of truth for configuration: `src/host/res/appsettings.yaml` and `src/host/res/appsettings.development.yaml`. Settings are YAML-backed; do not assume arbitrary environment keys such as `MODEL_ID` are implemented.
 
-## ۶. نصب و اجرای پروژه از سورس (برای توسعه‌دهنده‌ها)
+## 6. Run from source (developers)
 
-اگر می‌خواهید به‌جای Image آماده، سورس را اجرا یا تغییر دهید، Repository را Clone کنید.
+If you want to modify or develop the service rather than use its Docker image, clone the repository and create a virtual environment.
 
 **Windows PowerShell / Python 3.12:**
 
@@ -207,9 +213,9 @@ export env_type=development
 python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001 --workers 1
 ```
 
-در Linux CPU ممکن است نصب اولیه PyTorch از Index اختصاصی CPU مثل Dockerfile مناسب‌تر باشد؛ برای macOS باید نسخه پشتیبانی‌شده PyTorch همان سیستم نصب شود. برای اجرای توسعه‌ای Swagger در `http://127.0.0.1:8001/docs` باز می‌شود، نه پورت Docker یعنی `8002`.
+On Linux CPU hosts, installing PyTorch separately from the official CPU index (as done in the Dockerfile) may be appropriate. On macOS, install a compatible PyTorch distribution for your platform. When running from source, Swagger is at `http://127.0.0.1:8001/docs`, **not** the Docker example's port `8002`.
 
-برای اجرای Compose (روش جایگزین و نیازمند Build محلی):
+**Optional Docker Compose** (performs a local image build):
 
 ```powershell
 docker compose up --build -d
@@ -218,45 +224,45 @@ docker compose logs --tail 100 summarizer
 docker compose down
 ```
 
-`compose.yaml` پورت میزبان **8000** و Volume مجزای `hf_cache` دارد. اجرای واقعی Compose به‌طور مستقل تأیید نشده است. دانلود Wheel لینوکس PyTorch از CDN روی بعضی شبکه‌ها کند یا ناموفق بوده؛ **برای اولین استفاده، Image آماده GHCR را ترجیح دهید**. Workflow ساخت Image در `.github/workflows/docker-image.yml` دستی است و خودکار با هر Push اجرا نمی‌شود.
+The project's `compose.yaml` publishes host port **8000** and uses its own `hf_cache` volume, separate from the `mt5_hf_cache` volume above. Compose runtime has **not been independently verified**. Downloading the Linux PyTorch wheel from its CDN can fail on slow/unreliable networks; prefer the **prebuilt GHCR image** for an initial trial. The workflow at `.github/workflows/docker-image.yml` is **manually dispatched**, not triggered by every push.
 
-## ۷. محدودیت‌ها و خطاهای رایج
+## 7. Limits, errors, and troubleshooting
 
-| محدودیت | مقدار یا رفتار |
+| Limit | Current behavior |
 | --- | --- |
-| متن مستقیم | ۱ تا **۲۰۰٬۰۰۰ کاراکتر** |
-| هر فایل | حداکثر **20 MiB** |
-| چند فایل | از **۱ تا ۳۲** فایل؛ مجموع فایل‌ها حداکثر **32 MiB** با تنظیم پیش‌فرض |
-| قالب‌ها | `TXT` با UTF-8، `PDF` متنی، `DOCX` |
-| PDF | تصویر اسکن‌شده یا رمزدار بدون متن قابل‌استخراج پذیرفته نمی‌شود؛ OCR وجود ندارد |
-| اجرای مدل | حداکثر **۱ Inference هم‌زمان در هر Worker** و انتظار ورود به صف پیش‌فرض **۳۰ ثانیه** |
-| HTTP health | فقط Liveness؛ به معنی آماده‌بودن مدل یا کیفیت خروجی نیست |
-| ذخیره فایل | برنامه اسناد آپلودشده را به‌صورت دائمی ذخیره نمی‌کند؛ بافر/فایل موقت حین پردازش ممکن است استفاده شود |
+| Direct text | **1–200,000 Unicode characters**, with nonblank content required |
+| Individual file | Up to **20 MiB** |
+| Multi-file upload | **1–32 files**, with a default **32 MiB aggregate** file-byte budget |
+| Formats | UTF-8 TXT, text-extractable PDF, DOCX |
+| PDF processing | No OCR for image-only scans; unreadable, corrupt, or encrypted documents may be rejected |
+| Model concurrency | **One concurrent inference per worker**; the default admission queue wait is **30 seconds** |
+| Health check | HTTP liveness only, **not model readiness** |
+| Uploaded document storage | No permanent application-level storage of uploads; temporary buffers/files may be used while processing |
 
-| HTTP | معنی معمول |
+| HTTP code | Typical meaning |
 | --- | --- |
-| `200` | درخواست پردازش شده؛ در درخواست چندفایلی، `success` هر فایل را هم بررسی کنید |
-| `400` | نام فایل یا Upload نامعتبر/خالی |
-| `408` | توقف بیش‌ازحد جریان Upload |
-| `413` | عبور از محدودیت حجم، تعداد یا بودجه پردازش |
-| `415` | فرمت یا MIME پشتیبانی‌نشده |
-| `422` | متن، مقدار `summary_length` یا محتوای فایل نامعتبر/غیرقابل استخراج |
-| `500` | خطای داخلی در پردازش یا Inference |
-| `503` | مدل در دسترس نیست یا سرویس تحت محدودیت منابع/صف است |
+| `200` | Request processed; for batches, also inspect `success` on every file |
+| `400` | Invalid/empty filename, empty upload, or malformed upload |
+| `408` | Multipart upload stalled beyond the configured idle timeout |
+| `413` | Upload size, document count, or processing budget exceeded |
+| `415` | Unsupported extension or incompatible MIME type |
+| `422` | Invalid text, `summary_length`, or unreadable/unprocessable file |
+| `500` | Internal parsing or inference failure |
+| `503` | Model unavailable or request admission saturated |
 
-**مشکلات متداول:**
+**Common problems:**
 
-- **Swagger باز نمی‌شود:** اول `docker ps -a --filter name=mt5-persian-summary` را ببینید. اگر Container توقف کرده، `docker start mt5-persian-summary`؛ اگر هنگام شروع `health: starting` دیدید، Health را دوباره بررسی کنید. URL را در مرورگر باز کنید، نه به‌عنوان فرمان PowerShell.
-- **`docker pull` خطای `denied` می‌دهد:** ابتدا موجودبودن Package و Tag در GHCR را بررسی کنید؛ برای Package خصوصی به احراز هویت با دسترسی `read:packages` نیاز است. هیچ Token را در کد یا لاگ قرار ندهید.
-- **اولین خلاصه کند است یا `503` می‌دهد:** اتصال Hugging Face، فضای Cache، RAM و `docker logs --tail 100 mt5-persian-summary` را بررسی کنید؛ در صورت شکست بارگذاری اولیه، رفع عامل و Restart ممکن است لازم باشد.
-- **خلاصه بسیار کوتاه، ناقص یا یکسان است:** از سلامت API نمی‌توان کیفیت مدل را نتیجه گرفت. روی نمونه‌های واقعی، پوشش موضوعات، جهت تغییرات، اعداد و نام‌ها را با متن مقایسه کنید. `long` تنها سقف توکن بالاتری تعیین می‌کند.
-- **صفحه در سیستم دیگر باز نمی‌شود:** `localhost` به همان کامپیوتر اشاره دارد. این پروژه **Authentication یا Rate Limiting عمومی ندارد**؛ بدون درگاه امن و کنترل دسترسی نباید پورت را روی اینترنت باز کرد.
+- **Swagger does not open:** Run `docker ps -a --filter name=mt5-persian-summary`. If stopped, use `docker start mt5-persian-summary`. During startup the health status can say `starting`; try the health check again after initialization. Open the URL in a browser, not as a bare PowerShell command.
+- **`docker pull` returns `denied`:** Check that the GHCR package/tag exists. A private package may require login with a token permitted to `read:packages`. Never commit tokens to source control or paste them into issue logs.
+- **First inference is slow or returns `503`:** Check Hugging Face connectivity, free cache space, available RAM, and `docker logs --tail 100 mt5-persian-summary`. Resolve the underlying loading issue and restart if necessary.
+- **Summary is too short, incomplete, or identical across tiers:** Healthy HTTP does not prove summary quality. Compare important topics, dates, numbers, named entities, and the direction of changes with the original. `long` only increases the token budget.
+- **A colleague cannot open `localhost`:** `127.0.0.1` points to the local machine. The current MVP has **no public-facing authentication or rate limiting**. Do not expose it directly to the internet without an appropriately secured gateway and access controls.
 
-در تست قبلی کیفیت، مدل در یک نمونه چندموضوعی بعضی موضوعات را حذف کرد و جهت تغییر آلودگی را نادرست بازگو کرد. این مدل هنوز برای اسناد حساس، تصمیم‌های اداری مهم یا متون پزشکی/حقوقی بدون بازبینی انسانی مناسب نیست. **روی فایل محرمانه فقط با مجوز سازمانی تست کنید.**
+In a prior quality check, the model omitted some topics from a multi-topic sample and reversed the reported direction of a pollution change. It should not be relied upon without human review for sensitive organizational, legal, medical, or financial documents. **Use confidential organizational documents only with the necessary permission.**
 
-## ۸. تست‌ها، ساختار پروژه و وضعیت تحویل
+## 8. Tests, project structure, and delivery status
 
-دستورهای توسعه‌دهندگان، پس از نصب `requirements.txt` و فعال‌کردن محیط مجازی:
+After installing `requirements.txt` and activating the Python virtual environment:
 
 ```powershell
 python -m pip check
@@ -264,15 +270,13 @@ python -m compileall -q src tests
 python -m pytest -q
 ```
 
-برای Smoke Test واقعی در برابر Container روشن (نیازمند Dependencyهای توسعه در محیط میزبان):
+Run the optional **real-model/live HTTP** end-to-end smoke test against an already running Docker container (requires the development dependencies on the host):
 
 ```powershell
 python tests/e2e_http_smoke.py --base-url http://127.0.0.1:8002 --large-upload
 ```
 
-**آخرین شواهد ثبت‌شده (2026-10-25):** در Windows تعداد **266 تست Passed و 2 هشدار Deprecation**؛ Image از GHCR دریافت شد، Container بیش از ۵۱ دقیقه در وضعیت `healthy` بود، `GET /api/v1/health` پاسخ `200` داد، و سناریوهای واقعی HTTP برای متن، TXT، PDF آزمایشی، DOCX، چندفایلی و خطاهای Upload موفق بودند. **این‌ها Benchmark کیفیت خلاصه، تست فشار یا تضمین امنیت Production نیستند.** تست واقعی Compose، Peak RAM و Graceful Shutdown زیر بار مستقل اجرا نشده‌اند.
-
-ساختار اصلی:
+**Last recorded verification (October 25, 2026):** On Windows, **266 tests passed with two non-failing deprecation warnings**. The GHCR image was pulled, the container remained `healthy` for over 51 minutes, `GET /api/v1/health` returned `200`, and live HTTP checks passed for text, synthetic text-layer PDF, TXT, DOCX, multi-file summarization, and expected negative upload cases. **These results are not a summary-factuality benchmark, load test, or production security certification.** Docker Compose execution, peak memory measurement, and graceful shutdown under active inference were not independently tested.
 
 ```text
 src/
@@ -280,18 +284,18 @@ src/
   application/             # HTTP controllers, DTOs and upload validation
   core/services/           # Extraction, chunking and summarization logic
   infrastructure/          # Dependency injection and mT5 model provider
-tests/                     # Unit, integration and opt-in live HTTP smoke
+tests/                     # Unit, integration and opt-in live HTTP smoke tests
 docs/                      # Architecture, model verification and progress
 Dockerfile
 compose.yaml
 requirements.txt
 ```
 
-برای جزئیات فنی و تاریخچه Acceptance: [`docs/IMPLEMENTATION_PROGRESS.md`](docs/IMPLEMENTATION_PROGRESS.md)، [`docs/STAGE2_MODEL_VERIFICATION.md`](docs/STAGE2_MODEL_VERIFICATION.md)، [`Service_Architecture_Guide_FA.md`](Service_Architecture_Guide_FA.md) و [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
+More technical details: [Implementation progress](docs/IMPLEMENTATION_PROGRESS.md), [model verification](docs/STAGE2_MODEL_VERIFICATION.md), [architecture guide (Persian)](Service_Architecture_Guide_FA.md), and [implementation plan](IMPLEMENTATION_PLAN.md).
 
-**وضعیت:** تمام ۸ مرحله MVP تکمیل شده‌اند؛ OCR، UI اختصاصی، Database، Authentication، Queue، Fine-tuning و تضمین وفاداری معنایی خلاصه‌ها **جزء این نسخه نیستند**.
+**Project status:** All eight MVP implementation stages are marked **Completed**. OCR, a dedicated UI, database, authentication, background job queue, fine-tuning, and guaranteed factual accuracy are **not part of this version**.
 
-**پایان کار با Docker (در صورت نیاز):**
+**Stop or restart the Docker container when needed:**
 
 ```powershell
 docker stop mt5-persian-summary

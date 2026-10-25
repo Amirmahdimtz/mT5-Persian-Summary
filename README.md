@@ -1,19 +1,184 @@
-# mT5 Persian Summarization Service — MVP
+# خلاصه‌سازی متن و اسناد فارسی با mT5
 
-FastAPI REST API for Persian text summarization using a pinned, lazily loaded mT5 checkpoint. Supports direct text, UTF-8 TXT, **text-layer** PDF, DOCX and per-file summaries for batches. Long inputs use tokenizer-aware chunking and bounded hierarchical summarization. Swagger is available at `/docs`. **No OCR, authentication, database, queue, UI or model fine-tuning** is included.
+**Persian Document Summarization REST API · FastAPI · mT5 · Docker**
 
-## Architecture and requirements
+این پروژه متن فارسی یا فایل‌های `TXT`، `PDF` متنی و `DOCX` را دریافت می‌کند و با مدل [`nafisehNik/mt5-persian-summary`](https://huggingface.co/nafisehNik/mt5-persian-summary) یک **خلاصه فارسی** برمی‌گرداند. امکان ارسال چند فایل در یک درخواست وجود دارد و **برای هر فایل خلاصه جداگانه** تولید می‌شود.
 
-- `src/host/`: ASGI entry point and YAML configuration; `src/application/`: HTTP DTOs, controllers, upload admission and discovery.
-- `src/core/services/summarization/`: extraction, chunking, hierarchy and orchestration; `src/infrastructure/`: constructor `@inject` discovery, configuration and process-scoped model provider.
-- Python **3.11+** (`.python-version` declares 3.11; Windows acceptance used **3.12.10**). Docker uses **Python 3.12.10**, Debian Bookworm slim and CPU-only PyTorch.
-- Major dependencies: FastAPI, Pydantic v2, Uvicorn, Transformers 4.x, PyTorch 2.x, SentencePiece, pypdf 6.x, python-docx 1.x, python-multipart, PyYAML, HTTPX and pytest. `requirements.txt` has version **ranges, not an immutable lockfile**; Docker rebuilds may resolve newer compatible wheels. The Docker CPU index is used for PyTorch to avoid CUDA-enabled wheel downloads.
+> **وضعیت: MVP قابل اجرا و تست‌شده.** اجرای موفق API به معنی صحیح‌بودن همه خلاصه‌ها نیست. مدل ممکن است نکات مهم را حذف کند، اطلاعات را اشتباه بازگو کند یا برای اسناد بلند خلاصه‌ای بیش‌ازحد کوتاه بسازد. **قبل از استفاده مدیریتی یا سازمانی، خلاصه را با سند اصلی تطبیق دهید.**
 
-## Local installation
+## برای شروع چه چیزی لازم است؟
 
-Run all commands from the repository root. Model weights are **not** bundled with the source; the first valid inference needs Hugging Face access unless the exact revision is already cached.
+| مورد | توضیح |
+| --- | --- |
+| سریع‌ترین اجرا | Docker Desktop / Docker Engine و Image آماده در GHCR |
+| بدون Docker | Python 3.12 و نصب `requirements.txt` |
+| سخت‌افزار | مدل فعلاً روی **CPU** اجرا می‌شود؛ برای Docker حدود **8 GiB حافظه در دسترس** در نظر بگیرید (برآورد اولیه، نه اندازه‌گیری Peak RAM) |
+| اینترنت | برای دریافت Image و دانلود اولیه وزن‌های مدل از Hugging Face، مگر اینکه فایل‌های موردنیاز قبلاً Cache شده باشند |
+| کار با سرویس | Swagger در `/docs` یا درخواست HTTP به REST API |
+| فرمت‌های مجاز | `.txt` با UTF-8، `.pdf` دارای متن قابل استخراج، `.docx`؛ فایل اسکن‌شده/OCR پشتیبانی نمی‌شود |
 
-### Windows PowerShell — Python 3.12
+**مسیر پیشنهادی:** اگر فقط می‌خواهید مدل را امتحان کنید، بخش «اجرای سریع با Docker» را انجام دهید؛ نیازی به نصب Python یا کلون‌کردن Repository نیست.
+
+## ۱. اجرای سریع با Docker (پیشنهادی)
+
+Image آماده در GitHub Container Registry قرار دارد؛ به ساخت محلی Docker Image احتیاج ندارید. روی **همان کامپیوتری** که می‌خواهید API را امتحان کنید، Docker را روشن و در PowerShell اجرا کنید:
+
+```powershell
+docker pull ghcr.io/amirmahdimtz/mt5-persian-summary:stage8
+
+docker volume create mt5_hf_cache
+
+docker run -d --name mt5-persian-summary --init --memory 8g --cpus 2 --pids-limit 256 --security-opt no-new-privileges -p 127.0.0.1:8002:8000 -v mt5_hf_cache:/home/app/.cache/huggingface -e env_type=production ghcr.io/amirmahdimtz/mt5-persian-summary:stage8
+```
+
+- `8002` پورت **کامپیوتر شما** و `8000` پورت **داخل Container** است؛ این عدد را در تمام نمونه‌های Docker همین راهنما استفاده کرده‌ایم.
+- `127.0.0.1` یعنی سرویس فقط از کامپیوتر میزبان قابل دسترسی است؛ لینک آن روی سیستم همکار یا گوشی دیگر کار نمی‌کند.
+- Volume با نام `mt5_hf_cache` وزن‌های دانلودشده را بین اجرای مجدد Container حفظ می‌کند.
+- Image وزن‌های mT5 را داخل خود ندارد. **اولین درخواست واقعی خلاصه‌سازی** ممکن است برای دانلود Checkpoint حدود ۱٫۲ گیگابایتی و بارگذاری مدل زمان‌بر باشد.
+- اگر Container با همین نام قبلاً ساخته شده و متوقف است، به‌جای `docker run` از `docker start mt5-persian-summary` استفاده کنید؛ اگر فعال است نیازی به ساخت مجدد نیست.
+
+بررسی وضعیت:
+
+```powershell
+docker ps --filter name=mt5-persian-summary
+docker inspect --format '{{json .State.Health}}' mt5-persian-summary
+curl.exe -i http://127.0.0.1:8002/api/v1/health
+```
+
+پس از آماده‌شدن سرویس انتظار می‌رود `healthy` و پاسخ زیر را ببینید:
+
+```json
+{"status":"ok"}
+```
+
+**توجه:** Health فقط زنده‌بودن HTTP را نشان می‌دهد و تضمین نمی‌کند مدل دانلود یا آماده Inference شده باشد. بارگذاری مدل با نخستین درخواست خلاصه‌سازی بررسی می‌شود.
+
+برای بازکردن Swagger در مرورگر ویندوز، **این دستور** را در PowerShell اجرا کنید:
+
+```powershell
+Start-Process "http://127.0.0.1:8002/docs"
+```
+
+یا آدرس `http://127.0.0.1:8002/docs` را **در نوار آدرس مرورگر** وارد کنید؛ URL را به‌تنهایی مثل یک فرمان در PowerShell ننویسید.
+
+## ۲. اولین تست در Swagger، بدون کدنویسی
+
+در صفحه `http://127.0.0.1:8002/docs` سه عملیات اصلی می‌بینید:
+
+| Endpoint | چه کاری انجام می‌دهد؟ | ورودی |
+| --- | --- | --- |
+| `POST /api/v1/summarization/text` | خلاصه‌کردن یک متن فارسی | JSON با `text` و `summary_length` |
+| `POST /api/v1/summarization/file` | خلاصه‌کردن **یک فایل** | انتخاب فایل و طول خلاصه |
+| `POST /api/v1/summarization/files` | خلاصه‌کردن **چند فایل جداگانه** | چند فایل و طول خلاصه |
+
+### تست متن
+
+۱. بخش `POST /api/v1/summarization/text` را باز و روی **Try it out** کلیک کنید.
+۲. متن زیر را در `Request body` بگذارید.
+۳. روی **Execute** کلیک کنید و `Response body` را ببینید.
+
+```json
+{
+  "text": "سازمان هواشناسی اعلام کرد که بارش باران در روزهای آینده در مناطق شمالی کشور افزایش می‌یابد. کارشناسان توصیه کردند رانندگان پیش از سفر وضعیت جاده‌ها را بررسی کنند و به هشدارهای هواشناسی توجه داشته باشند.",
+  "summary_length": "medium"
+}
+```
+
+در صورت موفقیت، HTTP `200` و فیلد `summary` برمی‌گردد. متن داخل `summary` خروجی مدل است؛ مقدار آن از قبل ثابت یا تضمین‌شده نیست.
+
+### تست یک PDF یا Word
+
+۱. `POST /api/v1/summarization/file` را باز کنید و **Try it out** را بزنید.
+۲. در `file` روی **Choose File** بزنید و یک فایل `TXT`، `PDF` متنی یا `DOCX` انتخاب کنید.
+۳. `summary_length` را روی `medium` بگذارید و **Execute** را بزنید.
+۴. در پاسخ، `success: true` و `summary` را بررسی کنید.
+
+**PDF متنی** فایلی است که بتوانید نوشته‌های داخل آن را انتخاب/کپی کنید. PDF صرفاً تصویری، OCR ندارد و در این MVP پردازش نمی‌شود.
+
+### تست چند فایل
+
+در `POST /api/v1/summarization/files` از **Try it out** استفاده کنید و چند فایل انتخاب کنید. خروجی دارای `results`، `succeeded` و `failed` است؛ هر آیتم نتیجه فایل خودش را دارد. این عملیات **یک خلاصه مشترک از همه فایل‌ها** تولید نمی‌کند. حتی اگر HTTP `200` باشد، ممکن است بعضی فایل‌ها `success: false` داشته باشند؛ همه آیتم‌ها را بررسی کنید.
+
+## ۳. طول خلاصه: short، medium، long
+
+`summary_length` مقدار اختیاری دارد و پیش‌فرض آن `medium` است:
+
+| مقدار | سقف توکن تولید مدل برای هر فراخوانی |
+| --- | ---: |
+| `short` | 40 |
+| `medium` | 80 |
+| `long` | 120 |
+
+**این اعداد سقف هستند، نه تعداد کلمات و نه طول تضمین‌شده خروجی.** مدل ممکن است زودتر تولید را تمام کند و حتی در هر سه حالت خروجی یکسانی بدهد. برای یک PDF آزمایشی هشت‌صفحه‌ای با **۱۸٬۰۵۲ کاراکتر ورودی**، هر دو حالت `medium` و `long` خلاصه‌ای **یکسان و تنها ۱۱۳ کاراکتری** تولید کردند. بنابراین تغییر مقدار به `long` الزاماً مشکل کوتاه‌بودن خلاصه سند بلند را رفع نمی‌کند.
+
+## ۴. استفاده از API بدون Swagger
+
+آدرس پایه Docker در این راهنما: `http://127.0.0.1:8002`.
+
+### PowerShell: ارسال متن فارسی
+
+```powershell
+$body = @{
+    text = 'سازمان هواشناسی از افزایش بارش باران در شمال کشور خبر داد و به رانندگان هشدار داد.'
+    summary_length = 'medium'
+} | ConvertTo-Json -Compress
+
+Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8002/api/v1/summarization/text' -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+```
+
+### PowerShell: ارسال یک فایل
+
+فایل `sample.pdf` باید واقعاً در پوشه فعلی وجود داشته باشد؛ نام آن را متناسب با فایل خود تغییر دهید:
+
+```powershell
+curl.exe -F 'file=@sample.pdf;type=application/pdf' -F 'summary_length=medium' http://127.0.0.1:8002/api/v1/summarization/file
+```
+
+### PowerShell: ارسال چند فایل
+
+```powershell
+curl.exe -F 'files=@sample.txt;type=text/plain' -F 'files=@sample.docx;type=application/vnd.openxmlformats-officedocument.wordprocessingml.document' -F 'summary_length=long' http://127.0.0.1:8002/api/v1/summarization/files
+```
+
+**نکته:** برای درخواست `multipart/form-data` با `curl -F`، هدر `Content-Type` را دستی تنظیم نکنید؛ `curl` آن را به‌همراه Boundary می‌سازد.
+
+### Linux/macOS: نمونه با curl
+
+پس از اجرای Container روی همان میزبان (با همان Port Mapping):
+
+```bash
+curl --fail-with-body -H 'Content-Type: application/json; charset=utf-8' \
+  -d '{"text":"بارندگی در شمال کشور افزایش می‌یابد و رانندگان باید به هشدارهای جاده‌ای توجه کنند.","summary_length":"medium"}' \
+  http://127.0.0.1:8002/api/v1/summarization/text
+
+curl --fail-with-body -F 'file=@sample.txt;type=text/plain' -F 'summary_length=medium' \
+  http://127.0.0.1:8002/api/v1/summarization/file
+```
+
+### معنی پاسخ‌ها
+
+- در `/text` فیلدهای اصلی `summary`، `summary_length`، `input_characters` و `output_characters` هستند.
+- در `/file` فیلدهای `filename`، `success`، `summary`، `error_code` و `error_message` نیز وجود دارند.
+- در `/files`، آرایه `results` و تعداد `succeeded` و `failed` را بررسی کنید.
+- `input_characters` تعداد کاراکتر متن ورودی استخراج‌شده و `output_characters` تعداد کاراکتر خلاصه است؛ این مقادیر **شاخص صحت معنایی** نیستند.
+
+## ۵. مدل چیست و پروژه چگونه کار می‌کند؟
+
+- **مدل انتخابی:** [`nafisehNik/mt5-persian-summary`](https://huggingface.co/nafisehNik/mt5-persian-summary)، با Revision ثابت `b575560ad967050e77a40f907abb1ebbeefb9a15`. مدل از خانواده **mT5** با معماری **Encoder–Decoder Transformer** است و طبق توضیحات منتشرکننده برای خلاصه‌سازی اخبار فارسی Fine-tune شده است.
+- **آموزش مدل:** این Repository مدل را از ابتدا آموزش نمی‌دهد و خودش Fine-tuning انجام نمی‌دهد؛ مدل آماده را در سرویس FastAPI به کار می‌گیرد. وزن‌های FP32 حدود **۱٫۲ GB** حجم دارند و تعداد پارامترها تقریباً **۳۰۰ میلیون** برآورد شده، نه شمارش قطعی.
+- **جریان پردازش:** `HTTP request → Text extraction (for files) → Token-aware chunking → Hierarchical summarization (for long inputs) → mT5 inference → JSON response`.
+- **متن بلند:** متن‌های بلند بر اساس توکن تقسیم می‌شوند؛ قطعه‌ها خلاصه شده و در صورت نیاز خلاصه‌های میانی دوباره ترکیب/خلاصه می‌شوند. محدودیت‌های پردازشی ممکن است در متن‌های بسیار بزرگ به خطای صریح منجر شوند.
+- **نحوه اجرا:** بارگذاری مدل به‌صورت Lazy و یک‌بار در هر Process انجام می‌شود؛ نسخه Docker روی **CPU و یک Uvicorn worker** تنظیم شده است.
+- **Tokenizer و تولید:** `SentencePiece` و Hugging Face `Transformers`؛ تنظیمات فعلی `num_beams=2`، `do_sample=False`، `early_stopping=True` و سقف ورودی مدل **۱۰۰۰ توکن در هر قطعه** است.
+- **مجوز مدل:** Model Card مجوز **MIT** را اعلام می‌کند؛ حقوق داده‌های آموزش و مجوز بازنشر کد این Repository باید مستقل بررسی شوند. در Revision فعلی Repository، فایل `LICENSE` جداگانه وجود ندارد.
+
+پیکربندی اصلی: `src/host/res/appsettings.yaml`؛ محیط توسعه: `src/host/res/appsettings.development.yaml`. این فایل‌ها منبع واقعی تنظیمات مدل هستند؛ نام‌هایی مثل `MODEL_ID` را به‌عنوان Environment Variable پشتیبانی‌شده فرض نکنید.
+
+## ۶. نصب و اجرای پروژه از سورس (برای توسعه‌دهنده‌ها)
+
+اگر می‌خواهید به‌جای Image آماده، سورس را اجرا یا تغییر دهید، Repository را Clone کنید.
+
+**Windows PowerShell / Python 3.12:**
 
 ```powershell
 git clone https://github.com/Amirmahdimtz/mT5-Persian-Summary.git
@@ -25,14 +190,10 @@ python -m pip install 'torch>=2.6,<3.0' --index-url https://download.pytorch.org
 python -m pip install -r requirements.txt
 python -m pip check
 $env:env_type = 'development'
-python -m compileall -q src tests
-python -m pytest -q
 python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001 --workers 1
 ```
 
-For an existing checkout use `git pull --ff-only origin main` instead of cloning. If PowerShell blocks activation, run `Set-ExecutionPolicy -Scope Process RemoteSigned` and activate again. Use a **second** PowerShell window for the HTTP checks; set `env_type` separately in each window if required. If port 8001 is in use, select another available port.
-
-### Linux / macOS
+**Linux/macOS:**
 
 ```bash
 git clone https://github.com/Amirmahdimtz/mT5-Persian-Summary.git
@@ -40,36 +201,15 @@ cd mT5-Persian-Summary
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-# Linux CPU-only: optionally install CPU PyTorch first as in the Dockerfile.
 python -m pip install -r requirements.txt
 python -m pip check
 export env_type=development
-python -m compileall -q src tests
-python -m pytest -q
 python -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001 --workers 1
 ```
 
-Linux CPU hosts may prefer `python -m pip install 'torch>=2.6,<3.0' --index-url https://download.pytorch.org/whl/cpu` **before** installing `requirements.txt`. macOS uses the supported PyTorch distribution for its platform; the Dockerfile targets Linux/CPU only. Python, wheel and system-library compatibility must be checked for the target platform.
+در Linux CPU ممکن است نصب اولیه PyTorch از Index اختصاصی CPU مثل Dockerfile مناسب‌تر باشد؛ برای macOS باید نسخه پشتیبانی‌شده PyTorch همان سیستم نصب شود. برای اجرای توسعه‌ای Swagger در `http://127.0.0.1:8001/docs` باز می‌شود، نه پورت Docker یعنی `8002`.
 
-## Docker (CPU, one worker)
-
-Docker Engine / Docker Desktop with Compose v2 and sufficient disk/RAM is required. These commands are the Stage 8 **validation procedure**, not a claim that this repository's image has already been built on every platform. Docker Desktop must have enough memory assigned to run the configured container.
-
-```powershell
-docker build -t mt5-persian-summary:stage8 .
-docker volume create mt5_hf_cache
-docker run -d --name mt5-persian-summary --init --memory 8g --cpus 2 --pids-limit 256 --security-opt no-new-privileges -p 127.0.0.1:8000:8000 -v mt5_hf_cache:/home/app/.cache/huggingface -e env_type=production mt5-persian-summary:stage8
-docker ps --filter name=mt5-persian-summary
-docker inspect --format '{{json .State.Health}}' mt5-persian-summary
-docker logs --tail 100 mt5-persian-summary
-# Run the real HTTP smoke from the host virtual environment (see Testing).
-docker stop mt5-persian-summary
-docker rm mt5-persian-summary
-```
-
-Use these same `docker` commands in Bash on Linux/macOS. The image's `CMD` explicitly binds `0.0.0.0:8000` using **one Uvicorn worker**; the host publishes only `127.0.0.1:8000`, not a public interface. Port changes require changing the run/Compose host mapping, or the image command. The YAML `server.host` and `server.port` apply to `python -m src.host.app`, **not** the explicit Uvicorn Docker command. A published port is not an authentication boundary if an upstream proxy exposes the service.
-
-For an equivalent single-service Compose deployment with a managed cache volume:
+برای اجرای Compose (روش جایگزین و نیازمند Build محلی):
 
 ```powershell
 docker compose up --build -d
@@ -78,164 +218,82 @@ docker compose logs --tail 100 summarizer
 docker compose down
 ```
 
-`compose.yaml` defines exactly one service and one named volume. It defaults to an **8 GiB memory limit and 2 CPUs**; override planning limits using environment variables `MT5_MEMORY_LIMIT` and `MT5_CPUS` before `docker compose up`. These are preliminary resource allocations, **not measured model requirements or proof of safe peak usage**. `docker compose down` retains its named volume unless explicitly removed. The `docker run` volume `mt5_hf_cache` and the Compose project-scoped `hf_cache` volume are separate unless configured otherwise. Do **not** use `docker compose down -v` when cache preservation is desired.
+`compose.yaml` پورت میزبان **8000** و Volume مجزای `hf_cache` دارد. اجرای واقعی Compose به‌طور مستقل تأیید نشده است. دانلود Wheel لینوکس PyTorch از CDN روی بعضی شبکه‌ها کند یا ناموفق بوده؛ **برای اولین استفاده، Image آماده GHCR را ترجیح دهید**. Workflow ساخت Image در `.github/workflows/docker-image.yml` دستی است و خودکار با هر Push اجرا نمی‌شود.
 
-### Remote Docker build when the PyTorch CDN fails locally
+## ۷. محدودیت‌ها و خطاهای رایج
 
-If both Windows and a clean Linux container cannot read even a 64 KiB range from `download-r2.pytorch.org`, repeated local Docker builds are not a reliable acceptance route. A **manual-only** GitHub Actions workflow, `.github/workflows/docker-image.yml`, builds the **same existing Dockerfile** on GitHub's `ubuntu-24.04` runner, checks container HTTP liveness and OpenAPI operations, and on success pushes `ghcr.io/amirmahdimtz/mt5-persian-summary:stage8` to the GitHub Container Registry (GHCR). It does **not** ship the mT5 checkpoint, prove model inference, or run automatically for commits.
+| محدودیت | مقدار یا رفتار |
+| --- | --- |
+| متن مستقیم | ۱ تا **۲۰۰٬۰۰۰ کاراکتر** |
+| هر فایل | حداکثر **20 MiB** |
+| چند فایل | از **۱ تا ۳۲** فایل؛ مجموع فایل‌ها حداکثر **32 MiB** با تنظیم پیش‌فرض |
+| قالب‌ها | `TXT` با UTF-8، `PDF` متنی، `DOCX` |
+| PDF | تصویر اسکن‌شده یا رمزدار بدون متن قابل‌استخراج پذیرفته نمی‌شود؛ OCR وجود ندارد |
+| اجرای مدل | حداکثر **۱ Inference هم‌زمان در هر Worker** و انتظار ورود به صف پیش‌فرض **۳۰ ثانیه** |
+| HTTP health | فقط Liveness؛ به معنی آماده‌بودن مدل یا کیفیت خروجی نیست |
+| ذخیره فایل | برنامه اسناد آپلودشده را به‌صورت دائمی ذخیره نمی‌کند؛ بافر/فایل موقت حین پردازش ممکن است استفاده شود |
 
-In GitHub, open **Actions → Stage 8 Docker remote build → Run workflow → main → Run workflow**. Open its job logs and require all steps, including **Publish validated image**, to succeed before attempting to pull the image. GitHub Actions must be enabled for the repository; this workflow requests only `contents: read` and `packages: write` through its temporary built-in `GITHUB_TOKEN`. It publishes a package in your GitHub namespace; check package visibility and account/organization permissions before using it. Manual runs can consume GitHub Actions minutes and registry storage.
+| HTTP | معنی معمول |
+| --- | --- |
+| `200` | درخواست پردازش شده؛ در درخواست چندفایلی، `success` هر فایل را هم بررسی کنید |
+| `400` | نام فایل یا Upload نامعتبر/خالی |
+| `408` | توقف بیش‌ازحد جریان Upload |
+| `413` | عبور از محدودیت حجم، تعداد یا بودجه پردازش |
+| `415` | فرمت یا MIME پشتیبانی‌نشده |
+| `422` | متن، مقدار `summary_length` یا محتوای فایل نامعتبر/غیرقابل استخراج |
+| `500` | خطای داخلی در پردازش یا Inference |
+| `503` | مدل در دسترس نیست یا سرویس تحت محدودیت منابع/صف است |
 
-From Windows PowerShell, **only after that workflow succeeds**:
+**مشکلات متداول:**
 
-```powershell
-docker pull ghcr.io/amirmahdimtz/mt5-persian-summary:stage8
-docker tag ghcr.io/amirmahdimtz/mt5-persian-summary:stage8 mt5-persian-summary:stage8
-docker image inspect mt5-persian-summary:stage8
-# Then run the documented 'docker run' command and E2E at host port 8002.
-```
+- **Swagger باز نمی‌شود:** اول `docker ps -a --filter name=mt5-persian-summary` را ببینید. اگر Container توقف کرده، `docker start mt5-persian-summary`؛ اگر هنگام شروع `health: starting` دیدید، Health را دوباره بررسی کنید. URL را در مرورگر باز کنید، نه به‌عنوان فرمان PowerShell.
+- **`docker pull` خطای `denied` می‌دهد:** ابتدا موجودبودن Package و Tag در GHCR را بررسی کنید؛ برای Package خصوصی به احراز هویت با دسترسی `read:packages` نیاز است. هیچ Token را در کد یا لاگ قرار ندهید.
+- **اولین خلاصه کند است یا `503` می‌دهد:** اتصال Hugging Face، فضای Cache، RAM و `docker logs --tail 100 mt5-persian-summary` را بررسی کنید؛ در صورت شکست بارگذاری اولیه، رفع عامل و Restart ممکن است لازم باشد.
+- **خلاصه بسیار کوتاه، ناقص یا یکسان است:** از سلامت API نمی‌توان کیفیت مدل را نتیجه گرفت. روی نمونه‌های واقعی، پوشش موضوعات، جهت تغییرات، اعداد و نام‌ها را با متن مقایسه کنید. `long` تنها سقف توکن بالاتری تعیین می‌کند.
+- **صفحه در سیستم دیگر باز نمی‌شود:** `localhost` به همان کامپیوتر اشاره دارد. این پروژه **Authentication یا Rate Limiting عمومی ندارد**؛ بدون درگاه امن و کنترل دسترسی نباید پورت را روی اینترنت باز کرد.
 
-If GHCR reports `denied` or `unauthorized`, the package may be private: authenticate interactively with `docker login ghcr.io -u Amirmahdimtz` using a GitHub personal access token with `read:packages` (do not commit/store the token in source). Do not assume that a public repository makes its newly created GHCR package public. This workflow **bypasses the local PyTorch wheel CDN only for image construction**: the Windows host must still be able to pull the multi-layer image from GHCR, and the **first real model request** still needs access to Hugging Face model artifacts or a complete cached checkpoint. A successful remote liveness check is not Docker inference acceptance.
+در تست قبلی کیفیت، مدل در یک نمونه چندموضوعی بعضی موضوعات را حذف کرد و جهت تغییر آلودگی را نادرست بازگو کرد. این مدل هنوز برای اسناد حساس، تصمیم‌های اداری مهم یا متون پزشکی/حقوقی بدون بازبینی انسانی مناسب نیست. **روی فایل محرمانه فقط با مجوز سازمانی تست کنید.**
 
-**Slow CPU wheel downloads:** The Dockerfile upgrades pip to a version supporting stable resumable downloads (`pip>=25.2,<27`), configures a 180-second socket timeout, 8 connection retries and 12 download-resume attempts, and uses an isolated BuildKit cache mount (`id=mt5-pip-v2`, `/root/.cache/pip`) so valid completed downloads can be reused on subsequent builds without bloating image layers. Docker's build-time pip version need not match the Windows virtual environment's pip version. Wheel SHA-256 integrity checks remain enabled. If the official CPU wheel download repeatedly fails a hash check, do **not** overwrite the expected hash or disable validation; inspect proxy/CDN responses, download completeness and connectivity. The first PyTorch CPU wheel can exceed 190 MB; transient `ReadTimeoutError` from `download-r2.pytorch.org` during `docker build` is a network/download failure, not a FastAPI or model-runtime failure. After pulling the Dockerfile fix, retry with `docker build --progress=plain -t mt5-persian-summary:stage8 .`. If the network remains unavailable, check the Docker Desktop proxy/DNS/firewall and ability to access the official PyTorch CPU wheel host; never disable TLS certificate verification or substitute untrusted wheels. A failed build creates neither the tagged image nor a container; do not run container/E2E checks until the image exists.
+## ۸. تست‌ها، ساختار پروژه و وضعیت تحویل
 
-**Diagnose the download before another long build (Windows PowerShell):** Compare a bounded 64 KiB byte-range request on Windows and inside the same Debian/Python base image. These commands do not install PyTorch or load the model. A successful HTTP `206` with 65,536 bytes demonstrates *short-range* access only, not sustained transfer of the full ~196 MB wheel.
-
-```powershell
-$wheel = 'https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl'
-curl.exe -L --range 0-65535 --max-time 30 --silent --show-error --output NUL --write-out 'host: HTTP %{http_code}, bytes %{size_download}, seconds %{time_total}\n' $wheel
-docker run --rm python:3.12.10-slim-bookworm python -c "import urllib.request; u='https://download-r2.pytorch.org/whl/cpu/torch-2.14.1%2Bcpu-cp312-cp312-manylinux_2_28_x86_64.whl'; q=urllib.request.Request(u,headers={'Range':'bytes=0-65535'}); r=urllib.request.urlopen(q,timeout=30); print('container: HTTP',r.status,'bytes',len(r.read(65536)))"
-```
-
-If Windows succeeds but the base-image container cannot read the same bytes, check Docker Desktop **Settings → Resources → Proxies** and Windows VPN/firewall behavior (especially `com.docker.backend.exe`); do not blindly increase pip retries. If both fail, investigate the external connection to `download-r2.pytorch.org`, an ISP/proxy/VPN policy or a temporary distribution problem. If both short transfers work but the full transfer repeatedly fails, the sustained large-file download path still needs investigation. In that case, consider building the same Dockerfile on a trusted remote Docker builder with a working connection and transferring the resulting image; do not replace official wheels with unverified copies. The host's **Windows** PyTorch wheel is not interchangeable with the required **Linux** wheel.
-
-**Port ownership:** HTTP 404 from `127.0.0.1:8000` does not establish anything about this image if no container is running. Another local Uvicorn process can already own port 8000. Check `Get-NetTCPConnection -LocalPort 8000 -State Listen` in PowerShell; to keep that service running, change only the host side of the Docker mapping from `-p 127.0.0.1:8000:8000` to `-p 127.0.0.1:8002:8000`, then run the live HTTP smoke against `http://127.0.0.1:8002`. `compose.yaml` still publishes host port 8000 and therefore requires that port to be available.
-
-Build copies `requirements.txt` before application code for dependency layer reuse, installs CPU-only PyTorch before other dependencies, excludes `.venv`, Git files, model files, local documents and tests from the build context, then executes under UID 10001 (`app`). Model artifacts are fetched **at inference time** into `HF_HOME=/home/app/.cache/huggingface` and kept on the writable named volume. A host bind-mounted cache must be writable by UID 10001; named volumes initialize from the prepared image directory. No Hugging Face token or secret is required for the public pinned checkpoint; never bake tokens, `.env` or credentials into an image. Use explicit `HF_HOME` volume persistence to avoid repeated downloads after container replacement.
-
-**Four separate checks:** successful `docker build` means packaging succeeded; `docker ps` means the process/container started; Docker's healthcheck and `GET /api/v1/health` mean **HTTP liveness only**; only a successful `/summarization/text` or the opt-in real-model HTTP smoke verifies that the checkpoint was downloaded, loaded and could produce an inference. The first inference may take substantially longer because it downloads approximately 1.2 GB of weights and initializes the tokenizer/model. Startup and health do not preload weights. Failed model initialization is cached **within that process**; repair network/cache/permissions and restart the container to retry. With a complete verified cache, `HF_HUB_OFFLINE=1` can be set for offline inference; without the exact pinned files, offline first use returns HTTP 503.
-
-A graceful Docker stop signals the PID 1 Uvicorn process (`--init` forwards signals), allowing normal ASGI graceful shutdown **subject to runtime grace periods and active work**. Python worker threads running `torch.generate` or document parsing cannot be forcibly stopped by coroutine cancellation, HTTP disconnect or SIGTERM. Do not assume that `docker stop` finishes long inference, or that an interrupted request instantly releases GPU/CPU/RAM resources. Keep one worker: each additional worker independently holds model weights and admission limits. `--memory` bounds container memory but can cause an OOM kill; it does **not** prove readiness.
-
-## Configuration and resource policy
-
-`env_type=development` selects `src/host/res/appsettings.development.yaml`. Any other nonempty `env_type` (including Docker's `production`) selects `appsettings.yaml`; uppercase `ENV_TYPE` is accepted if `env_type` is unset. Settings are **YAML-backed**, not arbitrary environment overrides: model ID, device, port and guards should be edited in the applicable file, not by inventing `MODEL_ID` or other unsupported environment keys. `HF_HOME` is consumed by Hugging Face libraries; Docker uses it for a writable persistent cache. Local default cache is typically `~/.cache/huggingface` (Windows: `%USERPROFILE%\.cache\huggingface`) unless overridden. `model.device` is `cpu` in both supplied profiles; `cuda` and `auto` exist in the provider but the supplied Docker image is CPU-only.
-
-| Guard | Current value / behavior |
-|---|---|
-| Text request | Nonblank, at most **200,000 Unicode characters** (`422` if invalid); normalization can change whitespace |
-| Per file | **20 MiB** source bytes; TXT UTF-8/BOM; text PDF and DOCX |
-| Multi-file | **1–32** files, independent ordered results; batches processed sequentially |
-| Aggregate files | **32 MiB** across files by default (`api.upload.max_total_bytes`, configurable 20–64 MiB), plus **1 MiB** multipart framing allowance at raw-body boundary |
-| Upload buffering | Read in at most **64 KiB** chunks; request pre-spooled with 1 MiB RAM threshold and temporary disk; no application-level permanent file storage |
-| Active multipart requests | **2** per process (`api.upload.max_active_requests`, allowed 1–16); busy admission may return `503` |
-| Idle multipart stream | **30 seconds** between request-body chunks (`api.upload.idle_timeout_seconds`, allowed 1–300); `408` on timeout |
-| Model inference | **1** concurrent per process (`model.max_concurrent_inferences`, range 1–4); **30-second** admission wait (`model.queue_wait_seconds`, max 300), after which `503`; **not** an inference execution deadline |
-| Model call | **1,000 input tokens** including specials and **20,000 characters** per chunk, max **120 decoder tokens** before summary-length mapping |
-| Hierarchy | **64 chunks** per pass, **6 levels**, **128 model calls** per request; insufficient compression fails explicitly |
-| Document extraction | **500 PDF pages**, **5,000,000 extracted characters**; DOCX **2,000 ZIP members**, **20 MiB per expanded member**, **80 MiB declared expanded total** |
-
-Generation uses `num_beams=2`, `repetition_penalty=1.0`, `length_penalty=2.0`, `early_stopping=true`, `do_sample=false`; short/medium/long decoder-token ceilings are **40/80/120** respectively. These are upper limits, not target word counts. Inference may take a long time on CPU even after admission. There is no enforced overall inference wall-clock timeout or live throughput/peak-memory capacity benchmark. HTTP clients/proxies must use appropriate timeouts. The previous **1046.2 MiB** Windows process working-set observation was a single snapshot, **not** peak Docker RAM. Plan for ~8 GiB initially and measure on representative workloads; malicious PDF resource exhaustion is not fully ruled out by current guards.
-
-Pinned Hugging Face checkpoint: `nafisehNik/mt5-persian-summary` revision `b575560ad967050e77a40f907abb1ebbeefb9a15`, model-card **MIT** license (training-data rights should be reviewed separately). Model is `MT5ForConditionalGeneration` via `AutoModelForSeq2SeqLM`, SentencePiece tokenizer, about 1.2 GB FP32 `pytorch_model.bin`, loaded once per process using `weights_only=True` and `trust_remote_code=False`. See `docs/STAGE2_MODEL_VERIFICATION.md` for provenance and pickle-weight supply-chain caveats.
-
-## HTTP API and Swagger
-
-After startup, `http://127.0.0.1:8001/docs` and `/openapi.json` show the three summarization endpoints (Docker host port: **8000**). `GET /api/v1/health` returns `200 {"status":"ok"}` independent of model state. There is **no model readiness endpoint**: the healthcheck cannot establish model availability or successful inference.
-
-| Method | Path | Input | Result |
-|---|---|---|---|
-| `POST` | `/api/v1/summarization/text` | JSON `{ "text": "...", "summary_length": "medium" }` | `200` summary and character counts |
-| `POST` | `/api/v1/summarization/file` | multipart field `file` and optional `summary_length` | `200` per-file result |
-| `POST` | `/api/v1/summarization/files` | repeated multipart field `files`, optional `summary_length` | `200` ordered `results`, `succeeded`, `failed` |
-
-`summary_length` is `short`, `medium` or `long` (default `medium`). Example response shapes below are illustrative **contract examples**, not reproducible model output:
-
-```json
-{"summary":"بارش باران در مناطق شمالی افزایش می‌یابد.","summary_length":"medium","input_characters":200,"output_characters":45}
-```
-
-```json
-{"filename":"sample.txt","summary_length":"medium","success":true,"summary":"خلاصه فارسی","input_characters":200,"output_characters":11,"error_code":null,"error_message":null}
-```
-
-```json
-{"results":[{"filename":"sample.txt","summary_length":"medium","success":true,"summary":"خلاصه فارسی","input_characters":200,"output_characters":11,"error_code":null,"error_message":null}],"succeeded":1,"failed":0}
-```
-
-HTTP `200` from `/files` does **not** imply all files succeeded: inspect each `success`, `error_code`, and the total counts. Missing or mismatched content type, bad filename, invalid or unreadable documents can fail before/after extraction. The following Bash `curl` examples require actual local input files:
-
-```bash
-curl --fail-with-body -H 'Content-Type: application/json; charset=utf-8' \
-  -d '{"text":"سازمان هواشناسی از افزایش بارش باران در شمال کشور خبر داد.","summary_length":"short"}' \
-  http://127.0.0.1:8001/api/v1/summarization/text
-curl --fail-with-body -F 'file=@sample.txt;type=text/plain' -F 'summary_length=medium' \
-  http://127.0.0.1:8001/api/v1/summarization/file
-curl --fail-with-body -F 'files=@sample.txt;type=text/plain' -F 'files=@sample.pdf;type=application/pdf' \
-  -F 'files=@sample.docx;type=application/vnd.openxmlformats-officedocument.wordprocessingml.document' \
-  -F 'summary_length=long' http://127.0.0.1:8001/api/v1/summarization/files
-```
-
-Windows PowerShell UTF-8-safe request and native `curl.exe` examples:
+دستورهای توسعه‌دهندگان، پس از نصب `requirements.txt` و فعال‌کردن محیط مجازی:
 
 ```powershell
-$json = @{ text = 'سازمان هواشناسی از افزایش بارش باران در شمال کشور خبر داد.'; summary_length = 'medium' } | ConvertTo-Json -Compress
-Invoke-RestMethod -Method Post -Uri 'http://127.0.0.1:8001/api/v1/summarization/text' -ContentType 'application/json; charset=utf-8' -Body ([System.Text.Encoding]::UTF8.GetBytes($json))
-'این یک متن فارسی برای خلاصه‌سازی است.' | Set-Content -Encoding UTF8 sample.txt
-curl.exe -F 'file=@sample.txt;type=text/plain' -F 'summary_length=short' http://127.0.0.1:8001/api/v1/summarization/file
-# Requires real text-layer sample.pdf and real DOCX sample.docx in the working directory.
-curl.exe -F 'files=@sample.txt;type=text/plain' -F 'files=@sample.pdf;type=application/pdf' -F 'files=@sample.docx;type=application/vnd.openxmlformats-officedocument.wordprocessingml.document' -F 'summary_length=medium' http://127.0.0.1:8001/api/v1/summarization/files
-```
-
-Expected status codes (error details use sanitized `{ "detail": { "code": "...", "message": "..." } }`):
-
-- **400**: invalid/empty filename, empty uploaded file or malformed multipart framing.
-- **408**: multipart body idle longer than configured timeout (not a summary-generation timeout).
-- **413**: per-file/aggregate/body upload size, file count, chunk or other processing budget exceeded.
-- **415**: unsupported extension or mismatched multipart MIME type (no `.doc`, scanned-image OCR, image or binary formats).
-- **422**: missing/invalid JSON/form fields, invalid text length/summary tier, invalid UTF-8, corrupt/encrypted/unreadable PDF/DOCX, or other unprocessable input.
-- **503**: unavailable model/tokenizer or saturated upload/inference admission. Model download/network/permission problems may need process restart.
-- **500**: unexpected inference/parser error, returned as a generic message. Avoid putting document contents into application/proxy logs or issue reports.
-
-## Testing and acceptance
-
-Fast `pytest` tests include mocked provider/API unit cases and in-process integration/parser cases. The optional scripts perform **real inference** (may download weights) and **live HTTP E2E** (must have a running Uvicorn process or Docker container). These are **different evidence levels**.
-
-```powershell
-$env:env_type = 'development'
 python -m pip check
 python -m compileall -q src tests
 python -m pytest -q
-python -m pytest -q tests/test_stage8_delivery.py
-python -m pytest -q -s tests/test_document_extraction_service.py -k smoke_
-python -m src.infrastructure.ml.smoke_mt5_model
-python -m src.infrastructure.ml.smoke_mt5_long_text
-python -m src.infrastructure.ml.smoke_mt5_quality --sample all
-# In another terminal, after starting Uvicorn at 8001:
-python tests/e2e_http_smoke.py --base-url http://127.0.0.1:8001 --large-upload
-# With Docker container (host-published port 8000):
-python tests/e2e_http_smoke.py --base-url http://127.0.0.1:8000 --large-upload
 ```
 
-`tests/e2e_http_smoke.py` synthesizes Persian TXT, text-layer PDF (test font/ToUnicode mapping) and DOCX in memory; it checks liveness/OpenAPI, all three summary lengths, all three file formats, batch results, sanitized malformed PDF, invalid filename, invalid tier and optionally HTTP 413. It **does not prove correctness on arbitrary third-party PDFs**, peak-RAM safety, 408 timeout behavior or 503 under real concurrent load. The model quality smoke uses heuristic checks for nonempty Persian outputs, not factual-grounding evaluation. The Stage 7 Windows baseline had **260 passed**. On 2026-10-25, the user ran the latest Stage 8 Windows regression (**266 passed, 0 failed, 2 deprecation warnings**), plus the earlier live Windows model/API E2E suite. A local Docker build repeatedly failed downloading the official Linux CPU PyTorch wheel due to upstream network stalls. The documented manual GitHub Actions/GHCR fallback delivered the image, which was pulled, tagged and **run successfully on the user's Windows Docker Desktop**. The final Docker live HTTP E2E completed every reported check, including real CPU model inference across all three summary lengths, TXT, synthetic text-layer PDF, DOCX, three-file batch, health/OpenAPI and negative upload/validation cases. This is **Stage 8 MVP acceptance**, not a factual-quality benchmark, load test or full security certification. See `docs/IMPLEMENTATION_PROGRESS.md` for the precise verification record.
+برای Smoke Test واقعی در برابر Container روشن (نیازمند Dependencyهای توسعه در محیط میزبان):
 
-### Verified Stage 8 Docker image and E2E (Windows, 2026-10-25)
+```powershell
+python tests/e2e_http_smoke.py --base-url http://127.0.0.1:8002 --large-upload
+```
 
-- **Image:** `ghcr.io/amirmahdimtz/mt5-persian-summary:stage8`, `linux/amd64`, reported digest `sha256:cd412cc060aab2c5d32d63445a1fbc09f84a3053fa8e7fcd61ce479d7daf6877`. `docker image inspect` confirmed non-root `User=app`, one Uvicorn worker, container port 8000, and configured liveness healthcheck. Image was delivered through GHCR rather than a completed local Docker build.
-- **Container:** `docker run -d` succeeded with 8 GiB memory limit, two CPUs, `--init`, PID/security constraints, model cache named volume, and host-only port `127.0.0.1:8002:8000`. `docker ps` confirmed the container running. The first immediate `curl` returned `Empty reply from server` while Docker health still reported `starting`; the subsequent E2E health call and all other real HTTP requests passed. This suggests a startup race, not a persistent API failure.
-- **Real-model smoke:** `python tests/e2e_http_smoke.py --base-url http://127.0.0.1:8002 --large-upload` completed all checks with `PASS live HTTP E2E smoke`. It verified text short/medium/long, each input format, ordered batch results, invalid-PDF 422, unsafe-name 400, invalid-summary-length 422 and oversized-file 413. Passing the synthetic samples does **not** establish model factual faithfulness, whether different length tiers yield materially different summaries, or performance under sustained load.
-- **Outstanding nonblocking measurements:** final Docker health state `healthy` after the startup grace period was not independently captured; Compose runtime (`docker compose up`), empirical SIGTERM/graceful-stop timing, cold-cache download time, peak RAM, concurrency throughput and real-world PDF rendering fidelity were not tested. These remain in next-version operational/quality follow-ups. The `/api/v1/health` endpoint is liveness only, never model readiness.
+**آخرین شواهد ثبت‌شده (2026-10-25):** در Windows تعداد **266 تست Passed و 2 هشدار Deprecation**؛ Image از GHCR دریافت شد، Container بیش از ۵۱ دقیقه در وضعیت `healthy` بود، `GET /api/v1/health` پاسخ `200` داد، و سناریوهای واقعی HTTP برای متن، TXT، PDF آزمایشی، DOCX، چندفایلی و خطاهای Upload موفق بودند. **این‌ها Benchmark کیفیت خلاصه، تست فشار یا تضمین امنیت Production نیستند.** تست واقعی Compose، Peak RAM و Graceful Shutdown زیر بار مستقل اجرا نشده‌اند.
 
-The MVP's documented architecture, security/resource limits and principal HTTP endpoints now satisfy the Stage 8 acceptance scope, with these explicit residual limitations.
+ساختار اصلی:
 
-## Limitations, troubleshooting and next-version backlog
+```text
+src/
+  host/                    # FastAPI startup and YAML settings
+  application/             # HTTP controllers, DTOs and upload validation
+  core/services/           # Extraction, chunking and summarization logic
+  infrastructure/          # Dependency injection and mT5 model provider
+tests/                     # Unit, integration and opt-in live HTTP smoke
+docs/                      # Architecture, model verification and progress
+Dockerfile
+compose.yaml
+requirements.txt
+```
 
-- **First request hangs or 503:** check the pinned Hugging Face revision/network, offline flags, disk/cache mount permission and available RAM. Inspect `docker logs mt5-persian-summary` or `docker compose logs summarizer` (do not enable payload logging). HTTP health `200` is possible before model readiness. Fix the environment and **restart** to clear a cached model-load error. For offline use, prepopulate the exact revision in the persistent HF cache; do not expect offline first-run downloads.
-- **Memory/CPU and latency:** CPU inference is expensive; the checkpoint is ~1.2 GB on disk, but peak memory can be higher. Start with a single worker and adequate RAM; Docker OOM kills require increasing available Docker Desktop/host memory or reducing load. Multiworker deployments duplicate the model. Live load/throughput and peak-memory profiling remain pending.
-- **PDF/DOCX issues:** image-only/scanned PDF needs OCR (out of scope). PDF RTL recovery is heuristic; some glyph, spacing and font-map errors persist. Malicious PDFs can still consume excessive parser resources. DOCX headers/text boxes/tracked changes may be omitted. Only `.txt`, `.pdf`, `.docx` are accepted.
-- **Summary fidelity:** a Stage 7 multitopic sample omitted healthcare/education and **incorrectly changed a reduction in air pollution to an increase**. A repeated long sample produced an extremely compressed summary. Nonempty-output tests do not establish factual faithfulness. Review important summaries against originals; no guarantee is made for medical, financial or legal uses.
-- **Cancellation/shutdown:** async cancellation does not instantly abort `torch.generate` or a running parser thread. An incoming request may outlive HTTP disconnect; graceful shutdown is best effort. No end-to-end inference execution deadline or durable work queue is implemented.
-- **Security:** no authentication or rate limiting; keep published ports on loopback or put behind an access-controlled gateway before exposing to untrusted users. Upload guards do not constitute a comprehensive malicious-PDF sandbox. No persistent document store, tokens or secrets are included. Hugging Face checkpoint uses a `.bin` weights artifact; `weights_only=True` reduces but does not eliminate supply-chain concerns.
-- **Platform:** Docker ships Linux/CPU wheels; it does not enable CUDA. macOS and GPU support require a separate supported installation. `pip check` and `docker build` are useful compatibility gates; exact versions may evolve due to requirement ranges.
+برای جزئیات فنی و تاریخچه Acceptance: [`docs/IMPLEMENTATION_PROGRESS.md`](docs/IMPLEMENTATION_PROGRESS.md)، [`docs/STAGE2_MODEL_VERIFICATION.md`](docs/STAGE2_MODEL_VERIFICATION.md)، [`Service_Architecture_Guide_FA.md`](Service_Architecture_Guide_FA.md) و [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
 
-**Backlog (not in MVP):** evaluation of Persian factual consistency and real-world document fidelity, live concurrency/peak-memory benchmarking, stronger untrusted-file isolation, immutable dependency locking/SBOM, OCR, authentication/rate limiting, background queue, storage/database, metrics, optional GPU and model fine-tuning.
+**وضعیت:** تمام ۸ مرحله MVP تکمیل شده‌اند؛ OCR، UI اختصاصی، Database، Authentication، Queue، Fine-tuning و تضمین وفاداری معنایی خلاصه‌ها **جزء این نسخه نیستند**.
+
+**پایان کار با Docker (در صورت نیاز):**
+
+```powershell
+docker stop mt5-persian-summary
+docker start mt5-persian-summary
+```

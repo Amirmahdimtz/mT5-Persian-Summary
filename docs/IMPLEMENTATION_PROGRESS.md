@@ -10,11 +10,11 @@
 | 4. Chunking & Long Text Summarization | Completed |
 | 5. Main SummarizationService | Completed |
 | 6. REST API & Upload Validation | Completed |
-| 7. Testing, Security & Optimization | In Progress |
+| 7. Testing, Security & Optimization | Completed |
 | 8. Docker & Final Delivery | Not Started |
 
-- Last completed stage: **6**
-- Active stage: **7 (awaiting Windows acceptance)**
+- Last completed stage: **7**
+- Active stage: **None (Stage 8 is next, Not Started)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -802,3 +802,22 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
 - Upload admission follow-up SHA: `60d4e38b338719b1349948fdb0f3637a71305a04` — `fix: enforce upload admission across ASGI event loops` (replace loop-bound Async semaphore with process-wide `threading.BoundedSemaphore` plus non-blocking async polling).
 - All three changes were verified as commits on GitHub `main`; final branch head advances again with this progress-document update. GitHub branch history is the authoritative reference.
 - No complete checkout or installed target dependencies were available to execute the new Python tests in the tool sandbox. Do not infer Passed results from successful GitHub commit creation.
+
+## Stage 7 Acceptance Follow-up — Windows/Python 3.12.10 (2026-10-25)
+
+- **Final Stage 7 Status: Completed** for the scoped testing/security/runtime-hardening acceptance criteria. Stage 8 remains Not Started. The earlier Stage 7 sections describe the pre-acceptance state at their respective dates; this follow-up supersedes their pending-verification status.
+- User confirmed clean fast-forward to implementation/verification HEAD `bdb8f63479ac532562a7f70de9751c946f11daf4` (`git status --short` initially empty). `env_type=development` and Python `3.12.10` in `.venv`.
+- `python -m pip install -r requirements.txt`: succeeded; installed `fastapi 0.162.0`, `pydantic 2.14.1`, `httpx 0.28.1`, `transformers 4.57.6`, `torch 2.14.1+cpu`, `pypdf 6.21.2`, `python-docx 1.2.0`, `python-multipart 0.0.32`. Dependency minimum `python-multipart>=0.0.27` met.
+- `python -m pip check`: Passed (`No broken requirements found`). `python -m compileall -q src tests`: Passed (no errors).
+- `python -m pytest -q tests/test_stage7_hardening.py`: **17 passed, 0 failed, 1 non-blocking warning** (10.31 s). Includes mock/deterministic inference and upload concurrency, cancellation and safe HTTP responses; this does not measure live concurrent model RAM/latency.
+- `python -m pytest -q tests/test_mt5_model_provider.py tests/test_mt5_stage4_provider.py tests/test_summarization_api.py`: **76 passed, 0 failed, 2 warnings** (14.92 s).
+- `python -m pytest -q -s tests/test_document_extraction_service.py -k smoke_`: **3 passed, 54 deselected** (3.64 s), with real Persian TXT/PDF/DOCX parser output.
+- `python -m pytest -q`: **260 passed, 0 failed, 2 non-blocking warnings** (21.86 s), versus historical Stage 6 243 passed. Warnings: `StarletteDeprecationWarning` for TestClient `httpx`, and `DeprecationWarning` for HTTPX `data=` raw content; no dependency upgrade justified solely by these warnings.
+- Real CPU mT5 quality smoke was run separately on the target Windows environment for all three built-in samples: `--sample short`: 153 source chars -> 74 summary chars; `--sample long`: 5112 -> 63; `--sample multitopic`: 434 -> 93. All reported `nonempty=True`, `persian=True`, `punctuation_only=False`, and `very_short_relative_to_source=False`, with no runtime failure. `T5Tokenizer` legacy warning expected; generation defaults unchanged.
+- **Quality finding (not a runtime acceptance failure):** The long sample is an 18-fold repetition and yielded a very compressed 63-char summary, omitting source details; not representative of distinct-topic long documents. The multitopic summary omitted healthcare/education content and **reversed meaning** from source `کاهش آلودگی هوا` (reduce air pollution) to summary `برای افزایش آلودگی هوا` (increase air pollution). Existing string/script/length smoke heuristics cannot establish factual faithfulness. Record as a real model-quality limitation for future evaluation (separate from Stage 7 infrastructure), not proof of a tokenizer/API bug; no model changes or fine-tuning were introduced.
+- Live Uvicorn `--workers 1` started successfully. `GET /api/v1/health`, Swagger `/docs` and `/openapi.json`, real JSON text summarization and valid TXT upload returned HTTP 200. Deliberately invalid PDF returned HTTP 422 with sanitized `InvalidDocumentError`. The PowerShell `Invoke-RestMethod` response showed mojibake, but the same server returned correct UTF-8 Persian text through `curl.exe`; do not classify this as a server Unicode regression without evidence.
+- Resource observation: `Get-NetTCPConnection` associated listening port 8001 with Python PID 14936; `Get-Process` at the sampled time reported PID 14936 RSS **1046.2 MiB** and another Python PID 19260 RSS **4.1 MiB**. This is a single working-set snapshot after inference, **not peak RAM, cumulative memory growth, a concurrency benchmark, or a per-model allocation measurement**.
+- Passed: 260 full-suite tests, 17 focused hardening tests, 76 selected model/API tests, 3 parser smoke cases, 3 real-model smoke runs, dependency health/compilation, real HTTP smoke endpoints. Failed: **0 reported**. Skipped/deselected: **54 deselected** in parser smoke selection (not full-suite skips). Not Run: controlled live multi-request load/peak-RAM profiling, GPU measurements, and adversarial PDF resource exhaustion testing. Unit concurrency coverage is verified, but live performance capacity is not quantified.
+- Residual constraints: inference/parser threads cannot be forcibly stopped upon cancellation; admission limits are process scoped; one CPU worker is recommended until representative load profiling; summary factual consistency is not guaranteed. None invalidates the Stage 7 scoped testing and hardening acceptance just verified; surface limitations explicitly in Stage 8 documentation.
+- **Stage 8 Readiness:** Ready to begin separately on request. Stage 8 must retain the reported semantic-quality and operational resource limitations; no Docker, model replacement, persistence, or UI was implemented as part of this acceptance follow-up.
+- GitHub acceptance commit message: `docs: confirm stage 7 Windows acceptance and stage 8 readiness`. Actual commit SHA is verifiable on the branch after this documentation update (cannot self-reference its own final SHA).

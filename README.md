@@ -80,6 +80,23 @@ docker compose down
 
 `compose.yaml` defines exactly one service and one named volume. It defaults to an **8 GiB memory limit and 2 CPUs**; override planning limits using environment variables `MT5_MEMORY_LIMIT` and `MT5_CPUS` before `docker compose up`. These are preliminary resource allocations, **not measured model requirements or proof of safe peak usage**. `docker compose down` retains its named volume unless explicitly removed. The `docker run` volume `mt5_hf_cache` and the Compose project-scoped `hf_cache` volume are separate unless configured otherwise. Do **not** use `docker compose down -v` when cache preservation is desired.
 
+### Remote Docker build when the PyTorch CDN fails locally
+
+If both Windows and a clean Linux container cannot read even a 64 KiB range from `download-r2.pytorch.org`, repeated local Docker builds are not a reliable acceptance route. A **manual-only** GitHub Actions workflow, `.github/workflows/docker-image.yml`, builds the **same existing Dockerfile** on GitHub's `ubuntu-24.04` runner, checks container HTTP liveness and OpenAPI operations, and on success pushes `ghcr.io/amirmahdimtz/mt5-persian-summary:stage8` to the GitHub Container Registry (GHCR). It does **not** ship the mT5 checkpoint, prove model inference, or run automatically for commits.
+
+In GitHub, open **Actions → Stage 8 Docker remote build → Run workflow → main → Run workflow**. Open its job logs and require all steps, including **Publish validated image**, to succeed before attempting to pull the image. GitHub Actions must be enabled for the repository; this workflow requests only `contents: read` and `packages: write` through its temporary built-in `GITHUB_TOKEN`. It publishes a package in your GitHub namespace; check package visibility and account/organization permissions before using it. Manual runs can consume GitHub Actions minutes and registry storage.
+
+From Windows PowerShell, **only after that workflow succeeds**:
+
+```powershell
+docker pull ghcr.io/amirmahdimtz/mt5-persian-summary:stage8
+docker tag ghcr.io/amirmahdimtz/mt5-persian-summary:stage8 mt5-persian-summary:stage8
+docker image inspect mt5-persian-summary:stage8
+# Then run the documented 'docker run' command and E2E at host port 8002.
+```
+
+If GHCR reports `denied` or `unauthorized`, the package may be private: authenticate interactively with `docker login ghcr.io -u Amirmahdimtz` using a GitHub personal access token with `read:packages` (do not commit/store the token in source). Do not assume that a public repository makes its newly created GHCR package public. This workflow **bypasses the local PyTorch wheel CDN only for image construction**: the Windows host must still be able to pull the multi-layer image from GHCR, and the **first real model request** still needs access to Hugging Face model artifacts or a complete cached checkpoint. A successful remote liveness check is not Docker inference acceptance.
+
 **Slow CPU wheel downloads:** The Dockerfile upgrades pip to a version supporting stable resumable downloads (`pip>=25.2,<27`), configures a 180-second socket timeout, 8 connection retries and 12 download-resume attempts, and uses an isolated BuildKit cache mount (`id=mt5-pip-v2`, `/root/.cache/pip`) so valid completed downloads can be reused on subsequent builds without bloating image layers. Docker's build-time pip version need not match the Windows virtual environment's pip version. Wheel SHA-256 integrity checks remain enabled. If the official CPU wheel download repeatedly fails a hash check, do **not** overwrite the expected hash or disable validation; inspect proxy/CDN responses, download completeness and connectivity. The first PyTorch CPU wheel can exceed 190 MB; transient `ReadTimeoutError` from `download-r2.pytorch.org` during `docker build` is a network/download failure, not a FastAPI or model-runtime failure. After pulling the Dockerfile fix, retry with `docker build --progress=plain -t mt5-persian-summary:stage8 .`. If the network remains unavailable, check the Docker Desktop proxy/DNS/firewall and ability to access the official PyTorch CPU wheel host; never disable TLS certificate verification or substitute untrusted wheels. A failed build creates neither the tagged image nor a container; do not run container/E2E checks until the image exists.
 
 **Diagnose the download before another long build (Windows PowerShell):** Compare a bounded 64 KiB byte-range request on Windows and inside the same Debian/Python base image. These commands do not install PyTorch or load the model. A successful HTTP `206` with 65,536 bytes demonstrates *short-range* access only, not sustained transfer of the full ~196 MB wheel.

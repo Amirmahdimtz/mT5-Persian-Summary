@@ -1,0 +1,22 @@
+services:
+  summarizer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mt5-persian-summary:stage8
+    init: true
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      env_type: production
+      HF_HOME: /home/app/.cache/huggingface
+    volumes:
+      - hf_cache:/home/app/.cache/huggingface
+    mem_limit: ${MT5_MEMORY_LIMIT:-8g}
+    cpus: ${MT5_CPUS:-2.0}
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  hf_cache:

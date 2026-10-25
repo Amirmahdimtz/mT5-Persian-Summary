@@ -14,6 +14,10 @@ def test_docker_runtime_contract():
     dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
     assert "python:3.12.10-slim-bookworm" in dockerfile
     assert "https://download.pytorch.org/whl/cpu" in dockerfile
+    assert "--mount=type=cache,target=/root/.cache/pip" in dockerfile
+    assert "pip install --timeout 180 --retries 8" in dockerfile
+    assert "--no-cache-dir" not in dockerfile
+    assert "PIP_NO_CACHE_DIR" not in dockerfile
     assert "USER app" in dockerfile
     assert "HF_HOME=/home/app/.cache/huggingface" in dockerfile
     assert '"--workers", "1"' in dockerfile

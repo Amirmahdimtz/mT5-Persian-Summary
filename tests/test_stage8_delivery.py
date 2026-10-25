@@ -26,6 +26,21 @@ def test_docker_runtime_contract():
     assert "src.host.app:app" in dockerfile
 
 
+
+def test_remote_docker_workflow_is_manual_and_scoped_to_main():
+    workflow_file = ROOT / ".github" / "workflows" / "docker-image.yml"
+    workflow = yaml.load(workflow_file.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    assert list(workflow["on"]) == ["workflow_dispatch"]
+    assert workflow["permissions"] == {"contents": "read", "packages": "write"}
+    job = workflow["jobs"]["build-and-publish"]
+    assert job["if"] == "github.ref == 'refs/heads/main'"
+    commands = "\n".join(step.get("run", "") for step in job["steps"])
+    assert "docker build --progress=plain" in commands
+    assert "docker push" in commands
+    assert "docker run -d" in commands
+    assert "openapi.json" in commands
+    assert "ghcr.io/" in commands
+
 def test_docker_context_excludes_local_and_sensitive_files():
     patterns = set((ROOT / ".dockerignore").read_text(encoding="utf-8").splitlines())
     assert {".git", ".venv", "tests", ".env", "*.bin", "*.safetensors"} <= patterns

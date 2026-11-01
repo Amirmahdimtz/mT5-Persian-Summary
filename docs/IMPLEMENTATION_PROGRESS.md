@@ -12,9 +12,14 @@
 | 6. REST API & Upload Validation | Completed |
 | 7. Testing, Security & Optimization | Completed |
 | 8. Docker & Final Delivery | Completed |
+| 9. Quality Benchmark & Root Cause | In Progress |
+| 10. General Summarization Quality | Not Started |
+| 11. Evidence-aware Extraction & Retrieval | Not Started |
+| 12. Document Query API | Not Started |
+| 13. Quality Hardening & Delivery | Not Started |
 
 - Last completed stage: **8**
-- Active stage: **None (Stage 8 MVP acceptance completed; residual measurements documented)**
+- Active stage: **9 (quality benchmark tooling; real-model baseline/human annotation pending)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -944,3 +949,17 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
 - **Quality transparency retained:** model output is not guaranteed factually faithful; the documented eight-page PDF with 18,052 extracted characters returned the same 113-character summary for `medium` and `long`. The distinction between HTTP success, model readiness and semantic quality was preserved.
 - **Verification:** the updated English `README.md` was fetched back from GitHub `main` and inspected. Static checks verified balanced 16 Markdown code-block pairs, English headings, expected API routes, exact pinned model revision, GHCR pull and PowerShell Swagger-launch commands, the real summary-quality caveat, and existing relative documentation links. **Not Run:** Python regression, Docker runtime, Compose, new model inference or E2E; this change is only Markdown content. Most recent reported runtime evidence remains 266 passed and actual healthy Docker E2E before the README-only update.
 - **GitHub commit:** `b345b9b9bcc5769df6e7175676eb28dc0b2cb926` (`docs: provide full English README and user guide`), on `main`. This supplemental Progress commit is verified separately against the GitHub branch head after updating. **Next step:** users may pull `main` and follow the English README; model-quality improvement is a separate future implementation task, not completed here.
+
+
+## Stage 9 — Quality Benchmark & Root-Cause Analysis (2026-11-01)
+
+- **Stage Number / Status:** 9 — **In Progress**. All eight original MVP stages remain Completed. Stages 10–13 are Not Started. Real mT5 baseline and authoritative human labels are missing; Stage 9 Acceptance Criteria are **not yet met**.
+- **Baseline GitHub HEAD:** `b5f1df5288f93e9a160948cfd8eb3b304daebea9` on `main`; repository write permission verified before changes. New development plan `docs/POST_MVP_DEVELOPMENT_PLAN.md` reviewed with architecture and existing model/chunking/services/tests.
+- **Changed files:** `benchmarks/quality_benchmark.py` (versioned dataset validation, optional real-model runs, SHA-bound human review template and scoring, extraction anchor diagnostics), `benchmarks/fixtures/quality_v1.json` (seven original synthetic Persian cases, five dev/two holdout), `tests/test_quality_benchmark.py` (22 isolated tests), `docs/STAGE9_QUALITY_BASELINE.md` (methodology, root-cause hypotheses, review criteria, commands), `.gitignore` (protect local raw outputs), and this `docs/IMPLEMENTATION_PROGRESS.md` entry. **Production Runtime/Endpoints: untouched.**
+- **Technical decisions:** use standard-library JSON and SHA-256, no new runtime dependency; no model replacement or generation changes. All seeded facts carry literal `source_quote` evidence. A reviewer must mark each fact `covered`, `omitted`, or `distorted` and each atomic output claim `supported`/`unsupported`; evidence quotes are substring-checked but human semantic validation remains mandatory. Scoring rejects mismatched datasets/run hashes or incomplete individual reviews; partial reviews are explicitly counted and cannot be accepted as a full baseline. Raw results are written using exclusive create (`x`) to prevent accidental overwrite. `inspect-extraction` is separate from inference to distinguish PDF RTL problems from model behavior.
+- **Added Dependencies:** none. Python 3.12 and existing `requirements.txt` retained.
+- **Tests (isolated authoring workspace):** `python -m pytest -q tests/test_quality_benchmark.py` **22 passed, 0 failed**; `python -m compileall -q benchmarks tests` **passed**; `python -m benchmarks.quality_benchmark validate` **passed** (seven cases; dev=5, holdout=2). These tests use mock model wiring and do **not** assert factual quality of actual mT5. The complete repository was not available in the execution sandbox due blocked GitHub DNS, so its older 266-case suite could not be rerun. Real mT5 inference, reviews, PDF source comparisons, Docker and benchmark on representative documents **Not Run**.
+- **Known Issues / blockers:** only seven synthetic seed cases; the proposed 30–50 licensed representative documents and 100 future Q&A labels have not been collected. Actual eight-page user PDF (18,052 extracted chars) is not available in this workspace. No measured `Fact Coverage`, `Unsupported Claim Rate`, `Latency` or `Peak RAM`; qualitative prior failure anecdotes are not newly reproduced measurements. Numerical acceptance thresholds and held-out benchmark policy need a real baseline and reviewer sign-off before Stage 10 tuning.
+- **GitHub source commits (verified by direct connector responses):** benchmark runner `9c84053dd515b8128c19e1df96fe8ac086da94e0`; dataset `de17aa7a3b21f283be9d73445d79510458fa1eb4`; tests `832fd5001aee9bb16e9798540a5ce2db726c0f57`; quality documentation `e3e08a871b6bd9c7e8a8064831e6235ab9ed5284`; ignore rules `84b97ab877674bdc3352c2c78bde834d3fb76cbc`. This Progress documentation commit is not self-referential; verify current GitHub `main` SHA after it is created.
+- **Local verification:** `git pull --ff-only origin main`, activate existing `.venv`, `python -m benchmarks.quality_benchmark validate`, `python -m pytest -q tests/test_quality_benchmark.py`, `python -m pytest -q`, and `python -m benchmarks.quality_benchmark run --split dev --output local_quality_dev_run1.json`. After manually reviewing output, run `review-template` and `score` as documented in `docs/STAGE9_QUALITY_BASELINE.md`.
+- **Next Stage Readiness:** **Blocked until Stage 9 real model baseline, human review, representativeness assessment and numerical stop/go thresholds are recorded**. Do not start Stage 10 quality tuning or assert Stage 9 Completed based on the isolated mock tests alone.

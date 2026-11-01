@@ -29,6 +29,8 @@ class TextChunkingService:
     MAX_CHUNKS = 64
     _SENTENCE_END = re.compile(r"[.!?؟؛]+[ \t\n]+")
     _WORD_END = re.compile(r"\s+")
+    # A heading belongs to the following section, not the preceding chunk.
+    _MARKDOWN_HEADING = re.compile(r"(?m)^#{1,6}[ \t]+[^\n]+$")
 
     def __init__(self, model_provider: Mt5ModelProvider) -> None:
         self._model_provider = model_provider
@@ -111,6 +113,14 @@ class TextChunkingService:
         # Avoid tiny chunks for early punctuation. Prefer paragraphs, then
         # newlines, sentences, then inter-word boundaries.
         cutoff = max(1, len(candidate) // 2)
+        # Prefer starting a new chunk at a structural section boundary.
+        # Do not split a header from its body when the full heading is visible.
+        headings = [
+            m.start() for m in cls._MARKDOWN_HEADING.finditer(candidate)
+            if cutoff <= m.start() < len(candidate)
+        ]
+        if headings:
+            return headings[-1]
         positions: list[int] = []
         pos = candidate.rfind("\n\n", cutoff)
         if pos >= 0:

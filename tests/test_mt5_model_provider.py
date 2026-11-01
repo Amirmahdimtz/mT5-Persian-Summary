@@ -120,6 +120,7 @@ def test_valid_generation_and_decode(mocked_backend):
     assert tokenizer.call_args.args == ("متن کوتاه",)
     assert model.generate.call_args.kwargs["max_length"] == 120
     assert model.generate.call_args.kwargs["num_beams"] == 2
+    assert model.generate.call_args.kwargs["no_repeat_ngram_size"] in (0, 3)
     assert model.generate.call_args.kwargs["do_sample"] is False
     assert model.generate.call_args.kwargs["input_ids"].device == "cpu"
 
@@ -169,6 +170,10 @@ def test_invalid_config_is_rejected_before_model_loading():
         {"num_beams": 0},
         {"length_penalty": float("nan")},
         {"repetition_penalty": 0},
+        {"no_repeat_ngram_size": -1},
+        {"no_repeat_ngram_size": 7},
+        {"no_repeat_ngram_size": True},
+        {"no_repeat_ngram_size": 1.5},
         {"early_stopping": "yes"},
     ):
         with pytest.raises(ConfigurationError):
@@ -199,3 +204,20 @@ def test_cpu_auto_selection(mocked_backend):
     provider = provider_with_config(device="auto")
     assert provider.summarize("متن") == "خلاصهٔ فارسی"
     assert provider._device == "cpu"
+
+
+def test_stage10_generation_trial_is_explicit_and_reversible(mocked_backend):
+    _, model, _, _, _ = mocked_backend
+    candidate = provider_with_config(no_repeat_ngram_size=3)
+    assert candidate.summarize("متن آزمایشی") == "خلاصهٔ فارسی"
+    assert model.generate.call_args.kwargs["no_repeat_ngram_size"] == 3
+    baseline = provider_with_config(no_repeat_ngram_size=0)
+    assert baseline.summarize("متن آزمایشی") == "خلاصهٔ فارسی"
+    assert model.generate.call_args.kwargs["no_repeat_ngram_size"] == 0
+
+
+def test_stage10_development_only_trial_configuration(monkeypatch):
+    monkeypatch.setenv("env_type", "development")
+    assert ConfigReader().get("model.no_repeat_ngram_size") == 3
+    monkeypatch.setenv("env_type", "production")
+    assert ConfigReader().get("model.no_repeat_ngram_size") == 0

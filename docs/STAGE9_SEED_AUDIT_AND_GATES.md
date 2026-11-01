@@ -83,3 +83,16 @@ The following pre-specified **seed development gates** prevent cherry-picking an
 - Seed gates are pre-specified but final representative quality thresholds require reviewer approval and real-document measurements.
 
 **Stage 9 status: In Progress.** Stage 10 is not implemented. This document makes the baseline reproducible without overstating its generality or review status.
+
+
+## 6. Windows CRLF checkout compatibility fix (2026-11-01)
+
+User-side PowerShell verification of the first real-source scaffold initially reported **31 passed, 1 failed** for the Stage 9 target tests; the full project reported **297 passed, 1 failed, 2 nonblocking warnings**. The failing test compared the raw UTF-8 file decoded without newline translation to `Path.read_text()`, which performs universal newline conversion on Windows.
+
+The manifest also pinned the exact **Git LF blob SHA-1**, while a Windows checkout can materialize `Markdown` files with `CRLF` depending on `core.autocrlf`. This caused a `Git blob SHA changed` error despite an otherwise unchanged Git-tracked document.
+
+The fix keeps the fail-closed integrity check: try the **raw bytes** against the pinned Git blob first; if the SHA-1 differs, replace *only* `CRLF` with `LF` and accept it **only if the resulting SHA-1 exactly matches** the pinned blob. All other edits continue to be rejected. The materialized text uses the matched canonical LF bytes, making dataset output cross-platform stable. An explicit LF/CRLF positive regression and an altered-content negative regression were added; the original test now compares raw decoded bytes rather than a newline-normalizing `read_text` call.
+
+**Verification (assistant isolated Linux Python environment):** `python -m pytest -q tests/test_quality_benchmark.py tests/test_project_document_dataset.py` — **34 passed**; `python -m compileall -q benchmarks tests` — **passed**. A dry-run of two actual repository documents converted to CRLF passed the exact pinned Git hash/evidence checks and dataset validation using a local synthetic holdout reference. Full three-document materialization and all production tests are **Not Run in the assistant environment** because this isolated checkout lacks the third Markdown document. User must rerun on Windows to verify all three real sources.
+
+**Failure cascade:** after a failed `project_document_dataset` invocation, `local_quality_project_v1.json` does not exist; subsequent `validate` or `review-template` commands then produce expected `FileNotFoundError` messages. Always materialize and validate successfully before invoking inference or review. Do not modify the manifest's pinned SHA, disable the hash guard, or delete the old quality review files to work around this error.

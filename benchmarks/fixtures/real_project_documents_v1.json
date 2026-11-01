@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "origin": "Three authentic project documents already tracked in the repository, not synthetic cases and not newly relicensed. The holdout remains untouched until final evaluation.",
+  "cases": [
+    {
+      "id": "real_architecture_guide",
+      "split": "dev",
+      "category": "architecture_guide",
+      "source_path": "Service_Architecture_Guide_FA.md",
+      "source_git_blob_sha1": "7fc7c6e8b3a0c9dbbcc57034dfc0c84135a440a8",
+      "reference_summary": "راهنمای معماری استفاده از FastAPI و DI مبتنی بر @inject و Auto Discovery را الزام‌آور می‌داند و ساخت Interface غیرضروری را منع می‌کند.",
+      "facts": [
+        {"id": "mandatory_standard", "type": "topic", "source_quote": "این سند «استاندارد الزام‌آور پروژه» است."},
+        {"id": "no_unnecessary_interface", "type": "action", "source_quote": "برای هر Service/Repository ساده Interface نساز."},
+        {"id": "constructor_injection", "type": "action", "source_quote": "Services، Repositories، Infrastructure providers و Controllerهای دارای dependency باید با @inject کار کنند"}
+      ]
+    },
+    {
+      "id": "real_mvp_plan",
+      "split": "dev",
+      "category": "implementation_plan",
+      "source_path": "IMPLEMENTATION_PLAN.md",
+      "source_git_blob_sha1": "2408d0488ebf01dd9fa2a7581192474685c2c833",
+      "reference_summary": "نقشه اولیه ساخت REST API خلاصه‌سازی فارسی با mT5، پشتیبانی از متن و TXT/PDF/DOCX و چند فایل را طی هشت مرحله تعریف می‌کند.",
+      "facts": [
+        {"id": "file_formats", "type": "topic", "source_quote": "متن مستقیم یا فایل‌های `TXT`، `PDF` و `DOCX` را ارسال"},
+        {"id": "multi_file", "type": "action", "source_quote": "چند فایل در یک درخواست نیز پشتیبانی می‌شوند"},
+        {"id": "eight_stages", "type": "number", "source_quote": "هشت مرحله متوالی"}
+      ]
+    },
+    {
+      "id": "real_post_mvp_plan_holdout",
+      "split": "holdout",
+      "category": "development_roadmap",
+      "source_path": "docs/POST_MVP_DEVELOPMENT_PLAN.md",
+      "source_git_blob_sha1": "70cc29fc8b134a478365ba9a5badc1a88330c584",
+      "reference_summary": "پس از MVP، برنامه پنج مرحله‌ای شامل Benchmark و بهبود کیفیت خلاصه‌سازی و ایجاد قابلیت مستقل سؤال و خلاصه موضوعی از متن اصلی سند تعریف شده است.",
+      "facts": [
+        {"id": "five_new_stages", "type": "number", "source_quote": "پنج مرحله جدید (Stages 9–13)"},
+        {"id": "quality_goal", "type": "topic", "source_quote": "افزایش **کیفیت، پوشش اطلاعات، وفاداری به واقعیت و کنترل طول**"},
+        {"id": "separate_query", "type": "action", "source_quote": "یک قابلیت **مستقل و اختیاری** برای پرسیدن سؤال از سند"},
+        {"id": "direct_evidence", "type": "topic", "source_quote": "از متن اصلی سند"}
+      ]
+    }
+  ]
+}

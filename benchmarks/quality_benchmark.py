@@ -51,7 +51,8 @@ def dataset_hash(path: Path) -> str:
 
 
 def validate_dataset(data: dict[str, Any]) -> list[dict[str, Any]]:
-    if data.get("version") != 1 or data.get("license") != "CC0-1.0":
+    if (data.get("version") != 1 or not isinstance(data.get("license"), str)
+            or data["license"] not in {"CC0-1.0", "PROJECT-REFERENCE-ONLY"}):
         raise BenchmarkInputError("dataset version/license is invalid")
     cases = data.get("cases")
     if not isinstance(cases, list) or not 1 <= len(cases) <= MAX_CASES:

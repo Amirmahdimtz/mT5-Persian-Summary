@@ -293,7 +293,8 @@ async def execute_async(dataset_path: Path, output_path: Path, lengths: list[str
         "model_settings": {key: settings[key] for key in (
             "id", "revision", "device", "max_input_tokens", "max_input_characters",
             "max_output_tokens", "num_beams", "repetition_penalty", "length_penalty",
-            "early_stopping", "max_concurrent_inferences", "queue_wait_seconds"
+            "no_repeat_ngram_size", "early_stopping", "max_concurrent_inferences",
+            "queue_wait_seconds"
         ) if key in settings}, "split": split,
         "results": outputs,
         "limitations": "No human fact review performed; summary shape and token counts do not prove factual accuracy. Peak RAM not measured."

@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import platform
+import re
 import sys
 import time
 from collections import Counter
@@ -131,6 +132,26 @@ def create_review_template(dataset: dict[str, Any], runs: dict[str, Any]) -> dic
                             "summary into atomic claims; assign supported boolean, "
                             "and exact source_quote evidence for supported claims."}
 
+def duplicate_fourgram_fraction(summary: str) -> float:
+    """Fraction of repeated Unicode four-word windows in the summary.
+
+    This is a surface repetition diagnostic, not a semantic accuracy metric.
+    """
+    words = re.findall(r"\w+", summary.casefold(), flags=re.UNICODE)
+    grams = [tuple(words[i:i + 4]) for i in range(len(words) - 3)]
+    return 1.0 - len(set(grams)) / len(grams) if grams else 0.0
+
+
+def _configured_output_budget(runs: dict[str, Any], tier: str) -> int | None:
+    settings = runs.get("model_settings")
+    if not isinstance(settings, dict):
+        return None
+    maximum = settings.get("max_output_tokens")
+    if type(maximum) is not int or maximum < 1:
+        return None
+    numerator, denominator = {"short": (1, 3), "medium": (2, 3), "long": (3, 3)}[tier]
+    return (maximum * numerator + denominator - 1) // denominator
+
 
 def score_reviews(dataset: dict[str, Any], runs: dict[str, Any], reviews: dict[str, Any],
                   *, expected_hash: str) -> dict[str, Any]:
@@ -187,10 +208,35 @@ def score_reviews(dataset: dict[str, Any], runs: dict[str, Any], reviews: dict[s
     fact_total = sum(labels[x] for x in LABELS)
     claim_total = claims["supported"] + claims["unsupported"]
     lengths: dict[str, dict[str, Any]] = {}
+    repetition: dict[str, dict[str, Any]] = {}
     for length in LENGTHS:
         items = [v for (cid, tier), v in run_items.items() if tier == length and not v.get("error_code")]
-        lengths[length] = {"count": len(items),
-                           "mean_output_chars": (sum(len(x.get("summary", "")) for x in items) / len(items)) if items else None}
+        measured_tokens = [v.get("output_tokens_including_specials") for v in items]
+        valid_tokens = (
+            len(items) > 0
+            and all(type(n) is int and n > 0 for n in measured_tokens)
+        )
+        token_budget = _configured_output_budget(runs, length)
+        fractions = [duplicate_fourgram_fraction(v.get("summary", "")) for v in items]
+        lengths[length] = {
+            "count": len(items),
+            "mean_output_chars": (sum(len(x.get("summary", "")) for x in items) / len(items)) if items else None,
+            "mean_output_tokens_including_specials": (
+                sum(measured_tokens) / len(items) if valid_tokens else None
+            ),
+            "configured_token_ceiling": token_budget,
+            "outputs_exceeding_ceiling": (
+                sum(n > token_budget for n in measured_tokens)
+                if valid_tokens and token_budget is not None else None
+            ),
+        }
+        repetition[length] = {
+            "count": len(items),
+            "mean_duplicate_fourgram_fraction": (
+                sum(fractions) / len(fractions) if fractions else None
+            ),
+            "outputs_with_repeated_fourgrams": sum(f > 0 for f in fractions),
+        }
     same_tiers = sorted({cid for (cid, _), _v in run_items.items()
                          if len({r.get("summary") for (name, _), r in run_items.items()
                                  if name == cid and not r.get("error_code")}) == 1
@@ -206,6 +252,7 @@ def score_reviews(dataset: dict[str, Any], runs: dict[str, Any], reviews: dict[s
         "claims_reviewed": claim_total,
         "by_fact_type": {t: {s: labels[f"type:{t}:{s}"] for s in LABELS} for t in sorted(FACT_TYPES)},
         "length_diagnostics": lengths,
+        "repetition_diagnostics": repetition,
         "identical_output_across_tiers": same_tiers,
         "warning": "Metrics are human-annotated, not automated proof of semantic accuracy. "
                    "Partial reviews cannot be used as an overall quality baseline."

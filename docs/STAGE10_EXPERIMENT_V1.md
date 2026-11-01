@@ -171,3 +171,46 @@ The command performs **real inference again**; only run on a development documen
 **Local assistant verification:** new trace tooling was checked using an isolated, fake-model Python suite: `43 passed` across Stage 9 benchmark, Stage 10 comparator and trace tests; compileall passed. No actual model weights or complete Windows suite ran **after adding the trace**, so user-side rerun is required.
 
 **Stage 10 remains In Progress.**
+
+
+## 7. Real first-map trace: where to investigate next (2026-11-01)
+
+The user uploaded the actual local-only `local_stage10_trace_architecture_v1.json` after a successful Windows full regression (**324 passed, 2 nonblocking warnings**) and target trace suite (**5 passed**).
+
+Trace provenance: `real_architecture_guide`, dataset SHA-256 `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c`, pinned model revision `b575560ad967050e77a40f907abb1ebbeefb9a15`, Development `no_repeat_ngram_size=3`, `medium`, reported `total_elapsed_seconds=99.777`, `successful=true`, no error.
+
+| Measured trace observation | Value |
+| --- | --- |
+| Normalized source characters | 28,130 |
+| Provider invocations | **11 = 10 original-source Map calls + 1 final Reduce call** |
+| Sum of ten Map input characters | 28,130 |
+| Sum of ten Map output characters | **677** (about **2.41%** of source length) |
+| Final Reduce input length | **695** characters (677 plus 9 double-newline separators) |
+| Final Reduce output | **65** characters, no repeated four-grams |
+| Original source fact quotes | All three **exact source quotes are in Map call 1's input** |
+| Exact quotes in first Map output | **0 of 3** |
+| Exact quotes in final Reduce input and output | **0 of 3** |
+| Repetition | All 11 output `repeated_fourgram_fraction` values were **0** |
+
+**Interpretation:** source-to-map input coverage is not the problem for these three pinned quotes. Their **verbatim wording** is absent immediately after the first Map call, before the Reduce input is formed. **This is strong evidence to prioritize examining the first Map generation**, but not proof that all three facts were absent *semantically* — the trace stores no intermediate generated text and a paraphrase would not match an exact quote. The final Reduce may also discard surviving paraphrases. Do **not** label the model root cause as fully confirmed, or claim source facts cannot be preserved.
+
+### One-call, opt-in semantic review probe (new)
+
+To inspect whether the first Map output paraphrases any of those three rules **without rerunning all 11 calls**, use `benchmarks.stage10_first_map_probe`. It resolves the existing tokenizer/chunker/model via DI, takes exactly the **first chunk** of the same Development source, runs a single model inference at the normal **120-token intermediate cap**, and locally stores **only the generated first-Map text** plus bounded diagnostics; it does not store the raw first source chunk.
+
+**Privacy:** unlike `stage10_trace`, its JSON contains real generated text, which can quote source content. It requires the explicit `--allow-generated-text` switch, rejects holdout cases, and refuses to overwrite an existing result. The user must inspect any file before sharing it. It does not change API/runtime behavior or model parameters.
+
+PowerShell in project root:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_first_map_probe.py tests/test_stage10_trace.py
+.\.venv\Scripts\python.exe -m pytest -q
+
+.\.venv\Scripts\python.exe -m benchmarks.stage10_first_map_probe --dataset local_quality_project_v1.json --case-id real_architecture_guide --output local_stage10_first_map_architecture_v1.json --allow-generated-text
+```
+
+**Review objective:** compare the single first-Map generated sentence(s) with the first original architecture source chunk and the pinned rules: mandatory standard, avoiding unnecessary interfaces and constructor `@inject`. If they are semantically absent at this first generation, a controlled **content-preservation Map experiment** is appropriate; if they survive as paraphrases but not the final summary, focus on the Reduce stage instead. Keep Stage 10 **In Progress**. Zero hardcoded reference-fact injections or automatic success labels are permitted.
+
+**Assistant isolated verification of the new probe:** `47 passed` across four offline benchmark/trace/probe test files, and Python compilation succeeded. The full Windows suite and one-call real CPU probe **have not been run since this new addition**.

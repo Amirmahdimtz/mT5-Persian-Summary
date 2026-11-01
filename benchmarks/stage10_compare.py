@@ -24,6 +24,21 @@ from benchmarks.quality_benchmark import (
 )
 
 
+_MODEL_FIELDS = (
+    "id", "revision", "device", "max_input_tokens", "max_input_characters",
+    "max_output_tokens", "num_beams", "repetition_penalty", "length_penalty",
+    "no_repeat_ngram_size", "early_stopping", "max_concurrent_inferences",
+    "queue_wait_seconds",
+)
+
+
+def _public_settings(run: dict[str, Any]) -> dict[str, Any] | None:
+    settings = run.get("model_settings")
+    if not isinstance(settings, dict):
+        return None
+    return {key: settings[key] for key in _MODEL_FIELDS if key in settings}
+
+
 def _index_runs(data: dict[str, Any], valid_ids: set[str], expected_sha: str) -> dict[tuple[str, str], dict[str, Any]]:
     if data.get("dataset_sha256") != expected_sha:
         raise BenchmarkInputError("run dataset SHA does not match the supplied fixed dataset")
@@ -80,15 +95,13 @@ def compare_runs(dataset: dict[str, Any], expected_sha: str, baseline: dict[str,
             "candidate_tokens_including_specials": new.get("output_tokens_including_specials"),
         })
 
-    baseline_params = baseline.get("model_settings")
-    candidate_params = candidate.get("model_settings")
     return {
         "dataset_sha256": expected_sha,
         "baseline_runs_sha256": runs_hash(baseline),
         "candidate_runs_sha256": runs_hash(candidate),
         "paired_cases": len(comparison),
-        "baseline_generation": baseline_params if isinstance(baseline_params, dict) else None,
-        "candidate_generation": candidate_params if isinstance(candidate_params, dict) else None,
+        "baseline_generation": _public_settings(baseline),
+        "candidate_generation": _public_settings(candidate),
         "different_successful_outputs": sum(x["outputs_identical"] is False for x in comparison),
         "unchanged_successful_outputs": sum(x["outputs_identical"] is True for x in comparison),
         "comparison": comparison,

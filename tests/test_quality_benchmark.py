@@ -167,3 +167,37 @@ def test_model_execution_wiring_with_fake_backend(monkeypatch, tmp_path):
     assert all(x["output_tokens_including_specials"] == 3 for x in result["results"])
     assert result["model_settings"] == {"id": "test-only"}
     assert result["dataset_sha256"] == dataset_hash(DATASET)
+
+
+def test_repetition_diagnostics_distinguish_repeated_word_sequences():
+    from benchmarks.quality_benchmark import duplicate_fourgram_fraction
+
+    repeated = "برای استفاده با چتGPT برای استفاده با چتGPT طراحی شد"
+    clean = "جلسه ۱۴ آبان با حضور نمایندگان برگزار شد و بودجه تصویب شد"
+    assert duplicate_fourgram_fraction(repeated) > 0.0
+    assert duplicate_fourgram_fraction(clean) == 0.0
+    assert duplicate_fourgram_fraction("متن کوتاه") == 0.0
+
+
+def test_scoring_reports_output_token_ceiling_and_repetition_without_model():
+    dataset, runs, review = sample_run()
+    runs["model_settings"] = {"max_output_tokens": 120}
+    output = "این متن برای استفاده در چتGPT برای استفاده در چتGPT نوشته شد"
+    runs["results"][0]["summary"] = output
+    runs["results"][0]["output_tokens_including_specials"] = 21
+    review["runs_sha256"] = runs_hash(runs)
+    scored = score_reviews(dataset, runs, review, expected_hash=dataset_hash(DATASET))
+    assert scored["length_diagnostics"]["medium"]["configured_token_ceiling"] == 80
+    assert scored["length_diagnostics"]["medium"]["mean_output_tokens_including_specials"] == 21
+    assert scored["length_diagnostics"]["medium"]["outputs_exceeding_ceiling"] == 0
+    assert scored["repetition_diagnostics"]["medium"]["outputs_with_repeated_fourgrams"] == 1
+    assert scored["repetition_diagnostics"]["long"]["mean_duplicate_fourgram_fraction"] is None
+
+
+def test_score_does_not_assume_missing_token_counts_pass_length_budget():
+    dataset, runs, review = sample_run()
+    scored = score_reviews(dataset, runs, review, expected_hash=dataset_hash(DATASET))
+    tier = scored["length_diagnostics"]["medium"]
+    assert tier["configured_token_ceiling"] is None
+    assert tier["outputs_exceeding_ceiling"] is None
+    assert tier["mean_output_tokens_including_specials"] is None

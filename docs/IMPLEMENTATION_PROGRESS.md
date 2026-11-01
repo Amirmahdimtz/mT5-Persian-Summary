@@ -13,13 +13,13 @@
 | 7. Testing, Security & Optimization | Completed |
 | 8. Docker & Final Delivery | Completed |
 | 9. Quality Benchmark & Root Cause | Completed |
-| 10. General Summarization Quality | Not Started |
+| 10. General Summarization Quality | In Progress |
 | 11. Evidence-aware Extraction & Retrieval | Not Started |
 | 12. Document Query API | Not Started |
 | 13. Quality Hardening & Delivery | Not Started |
 
 - Last completed stage: **9** (engineering baseline only; not model quality approval)
-- Active stage: **None**; Stage 10 is **Not Started** and is the next implementation stage
+- Active stage: **10 (initial reversible quality candidate and paired evaluation; human-reviewed inference pending)**
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -1031,3 +1031,16 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
 - **Frozen development gates for Stage 10:** unique synthetic fact coverage ≥8/19, zero critical direction reversals, no fact distortion, unsupported claim rate ≤12.5% under fixed claim segmentation, short/long distinct on ≥3/5 cases, authentic project documents ≥3/6 covered, architecture phrase repetition zero, and no API regression. They are **development regression gates**, not release thresholds. See `docs/STAGE9_BASELINE_SIGNOFF.md`.
 - **Known limitations / deferred release evidence:** no third-party approved multipage text PDF or real minutes, no original anecdotal eight-page PDF, no independently signed human labels, no representative 30–50-document/100-question set, no peak memory or warm-only CPU latency, no per-hierarchy-level tracing. Those are **recorded Stage 10/11 investigation and Stage 13 validation risks**; do not claim them met. Holdouts remain untouched; no tuning/model weights have changed.
 - **Next Stage Readiness:** **Stage 10 may begin on the frozen development benchmark with these caveats**. Production model-quality acceptance remains blocked until representative documents, independent review and held-out evaluation. This progress entry is not self-referential with a commit SHA; verify `main` head after commit.
+
+
+### Stage 10 implementation started — candidate v1 (2026-11-01)
+
+- **Stage:** 10. **Status: In Progress**, not completed; Stage 9 remains Completed as a diagnostic baseline. User explicitly requested starting Stage 10 coding on `main`; production quality acceptance has **not** been verified.
+- **Changed files:** `src/infrastructure/ml/mt5_model_provider.py` (typed and bounded `no_repeat_ngram_size` with 0 as original default; pass to `generate`), `src/core/services/summarization/text_chunking_service.py` (prefer full Markdown heading starts near safe chunk boundaries; exact normalized text coverage and tokenizer checks retained), `src/host/res/appsettings.development.yaml` (candidate ngram=3), `src/host/res/appsettings.yaml` (production decoding baseline=0), `benchmarks/quality_benchmark.py` (capture generation knob), `benchmarks/stage10_compare.py` (new paired raw run CLI), `tests/test_mt5_model_provider.py`, `tests/test_text_chunking_service.py`, `tests/test_stage10_compare.py`, `.gitignore`, `docs/STAGE10_EXPERIMENT_V1.md`, and this Progress document.
+- **Technical decisions:** Production decoder remains at Stage 9 behavior; Development runs an **opt-in environment-specific trial** with no-repeat 3, without changing model weights, revision, API, DI or inference limits. Markdown heading grouping is a shared lossless structural improvement but can change production outputs for headed text. The comparator rejects mismatched dataset SHA or unpaired keys, does not leak summaries or arbitrary model metadata and **never infers semantic improvement** from length/repetition. All local `local_stage10_*.json` experiment files are ignored by Git.
+- **Added dependencies:** none.
+- **Tests performed in assistant isolated sandbox:** source-equivalent `benchmarks.stage10_compare` and its isolated new tests plus available baseline Stage 9 benchmark suite: **38 passed**, `python -m compileall -q benchmarks tests` **passed**. An isolated exact new section-heading regex smoke test **passed**. A comparator smoke run on 15 identical records **passed**, reporting 15 paired/unchanged and `NOT_EVALUATED`; its locally staged fixture SHA differed from user's GitHub fixture, so this smoke used a **temporary test-only re-hashed copy** and is not a user dataset result.
+- **Tests Not Run:** User-side Windows targeted and complete regression **not yet rerun on Stage 10 head**; actual Stage 10 mT5 CPU candidate inference, fact annotation, PDF/DOCX extraction, peak RAM, comparison against the Stage 9 approved regression gates and reserved holdout **not run**. Previous user verification **before Stage 10 changes** was 303 passed, 2 warnings, targeted Stage 9 37 passed.
+- **Baseline / acceptance:** immutable source `docs/STAGE9_BASELINE_SIGNOFF.md`. Stated gates: synthetic covered ≥8/19, zero direction inversions and new fact distortions, unsupported claims ≤12.5% under review, ≥3/5 distinguishable short/long, authentic-project ≥3/6 facts retained, zero architecture-summary repeated four-grams, no API regression. Until actual CPU output and human review, all new candidate semantic gates remain `NOT_EVALUATED`.
+- **Known issues / risk:** n-gram constraint might shorten valid text or suppress necessary repeats; Markdown headings are not guaranteed to appear in extracted PDF/DOCX; map/reduce source-fact loss remains unisolated; benchmark sample size and human review are insufficient for production sign-off. Stage 11–13 not started.
+- **Next Stage Readiness:** continue Stage 10 iteration only after the user runs `docs/STAGE10_EXPERIMENT_V1.md` PowerShell commands and supplies paired candidate runs; do not declare Stage 10 Completed without independent semantic evaluation and actual improvement. Source commits are linked from GitHub history; confirm branch head after this Progress update.

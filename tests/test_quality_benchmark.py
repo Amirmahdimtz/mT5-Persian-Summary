@@ -57,6 +57,7 @@ def test_dataset_cases_have_exact_source_evidence():
     lambda d: d["cases"][0].update(split="test"),
     lambda d: d["cases"][0].update(repeat=51),
     lambda d: d["cases"][0]["facts"][0].update(source_quote="unrelated quote"),
+    lambda d: d["cases"][0]["facts"][0].update(type=["topic"]),
     lambda d: d["cases"].append(copy.deepcopy(d["cases"][0])),
     lambda d: d["cases"][0]["facts"].append(copy.deepcopy(d["cases"][0]["facts"][0])),
     lambda d: d.update(license="proprietary"),
@@ -148,7 +149,7 @@ def test_model_execution_wiring_with_fake_backend(monkeypatch, tmp_path):
     class FakeConfig:
         def get(self, key):
             assert key == "model"
-            return {"id": "test-only"}
+            return {"id": "test-only", "secret_access_token": "must-not-leak"}
     config_module.ConfigReader = FakeConfig
     for name, value in (
         ("src.infrastructure.ml.mt5_model_provider", model_module),

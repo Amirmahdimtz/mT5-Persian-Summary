@@ -140,3 +140,14 @@ Two calls succeeded without reported model errors; total recorded call time was 
 - `max_output_tokens` is a **ceiling**, not a minimum length. The service performs map/reduce and a final pass on long inputs; current evidence is insufficient to attribute the repetition/omissions to a particular stage without intermediate-chunk tracing. Do not describe model-weight changes, generation tuning or intermediate failures as confirmed causes.
 
 **Actionable Stage 10 baseline direction:** maintain both seed and real-document facts as mandatory coverage tests; separately track repetition/lexical degeneracy, hierarchy-stage coverage and distinct length behavior. Require review of multiple authentic third-party documents and independent sign-off before final production gates. Stage 9 remains **In Progress**; actual PDF and minutes inputs, human sign-off, RAM measurement and independent representative testing remain outstanding.
+
+
+## Engineering Stage 9 closure and quality caveats (2026-11-01)
+
+**Status: Completed as a fixed-scope, reproducible diagnostic benchmark; the model itself has NOT passed quality acceptance.** This closure supersedes older historical “In Progress” statements above, which accurately described the state at those earlier commits.
+
+See [STAGE9_BASELINE_SIGNOFF.md](STAGE9_BASELINE_SIGNOFF.md) for the exact four-criterion Stage 9 acceptance mapping, the pinned data/checkpoint configurations, the observed user-run model results, ranked causal hypotheses and **frozen Stage 10 development stop/go gates**. In particular: (a) the user's synthetic development baseline covers only **five independent sources** despite three tiers; (b) the project-document baseline covers **two Markdown development sources**, not PDF/DOCX; (c) two critical numerical/directional meaning reversals were reproduced; and (d) neither extraction diagnostics on the missing eight-page PDF nor independent human fact adjudication has occurred.
+
+New offline scoring metrics report mean encoded output tokens, configured tier ceilings, ceiling exceedances when measurements are available, and a repeated **Unicode four-word n-gram** fraction. They do not conflate nonrepetition, factual correctness or ceiling compliance with adequate summary coverage. Local isolated targeted tests after this addition: **37 passed**; most recent user-side full suite before this addition: **300 passed, 2 warnings**. No new real-model inference or full Windows regression occurred in the assistant environment.
+
+**Deferred mandatory release evidence (Stage 13, not claimed done):** authorised diverse real PDF/TXT/DOCX and minutes, representative data and labelled queries, independent reviewer approval, actual RTL extraction-anchor checks, warm latency/peak RAM, held-out model evaluation. No mT5 parameter/model change was introduced in Stage 9.

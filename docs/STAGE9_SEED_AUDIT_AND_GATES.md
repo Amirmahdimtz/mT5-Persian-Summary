@@ -96,3 +96,10 @@ The fix keeps the fail-closed integrity check: try the **raw bytes** against the
 **Verification (assistant isolated Linux Python environment):** `python -m pytest -q tests/test_quality_benchmark.py tests/test_project_document_dataset.py` — **34 passed**; `python -m compileall -q benchmarks tests` — **passed**. A dry-run of two actual repository documents converted to CRLF passed the exact pinned Git hash/evidence checks and dataset validation using a local synthetic holdout reference. Full three-document materialization and all production tests are **Not Run in the assistant environment** because this isolated checkout lacks the third Markdown document. User must rerun on Windows to verify all three real sources.
 
 **Failure cascade:** after a failed `project_document_dataset` invocation, `local_quality_project_v1.json` does not exist; subsequent `validate` or `review-template` commands then produce expected `FileNotFoundError` messages. Always materialize and validate successfully before invoking inference or review. Do not modify the manifest's pinned SHA, disable the hash guard, or delete the old quality review files to work around this error.
+
+
+## 7. Engineering closeout — 2026-11-01
+
+**Stage 9 diagnostic benchmark deliverable: Completed.** The earlier “In Progress” markers in this document are time-specific historical records before the two real-document inference runs, user-side scoring and the metric instrumentation landed. The formal acceptance mapping and **frozen** Stage 10 development regression gates are now centralized in [STAGE9_BASELINE_SIGNOFF.md](STAGE9_BASELINE_SIGNOFF.md).
+
+**Still not completed:** independent human labels, diverse third-party licensed documents, original PDF/RTL extraction, warm latency/peak RAM, reserved holdout evaluation and Stage 13 release testing. These are explicitly deferred as release evidence, not silently treated as passed. The frozen development gates in the signoff report do not certify model accuracy. No Stage 10 code changes or model retuning have been performed.

@@ -12,14 +12,14 @@
 | 6. REST API & Upload Validation | Completed |
 | 7. Testing, Security & Optimization | Completed |
 | 8. Docker & Final Delivery | Completed |
-| 9. Quality Benchmark & Root Cause | In Progress |
+| 9. Quality Benchmark & Root Cause | Completed |
 | 10. General Summarization Quality | Not Started |
 | 11. Evidence-aware Extraction & Retrieval | Not Started |
 | 12. Document Query API | Not Started |
 | 13. Quality Hardening & Delivery | Not Started |
 
-- Last completed stage: **8**
-- Active stage: **9 (quality benchmark tooling; real-model baseline/human annotation pending)**
+- Last completed stage: **9** (engineering baseline only; not model quality approval)
+- Active stage: **None**; Stage 10 is **Not Started** and is the next implementation stage
 - Repository: `Amirmahdimtz/mT5-Persian-Summary`
 - Branch: `main`
 - Baseline: repository was empty (no initial commit or branch head).
@@ -1018,3 +1018,16 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
 - **User-computed metrics:** dataset SHA-256 `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c`, `runs=2`, `successful_runs=2`, `reviewed_runs=2`, `fact_counts={covered:0, distorted:0, omitted:6}`, `fact_coverage=0.0`, `fact_distortion_rate=0.0`, `claims_reviewed=2`, `unsupported_claim_rate=0.0`. Fact omission: action=3, number=1, topic=2. Only **medium** was run; average **91.5 characters**; the empty `identical_output_across_tiers` list cannot establish length control without short/long outputs.
 - **Interpretation:** scoring confirms review completeness and arithmetic, **not independent semantic correctness**. Two broad source-supported claims coexist with **zero retention of the six specific required facts**; the architecture response also repeats an unhelpful generic phrase. The human-review requirement remains unmet.
 - **Changed Files:** this progress document only. **Added Dependencies:** none. **Tests:** no new automated tests or model inference; most recent user-reported full suite: 300 passed, 2 warnings, targeted: 34 passed. **Known Issues / Next Stage Readiness:** no approved independent review, representative third-party documents, source PDF/minutes extraction evaluation, peak RAM or final signed-off Stage 10 gates. Stage 9 remains In Progress; Stage 10 not started.
+
+
+### Stage 9 engineering baseline closeout (2026-11-01)
+
+- **Stage / Status:** **Stage 9 — Completed as the reproducible engineering benchmark and root-cause triage deliverable.** This is a deliberately bounded engineering completion, **not certification of mT5 factual quality**. Stage 10, 11, 12, 13 remain Not Started.
+- **Formal acceptance checks:** (1) CC0 fixed seven-scenario benchmark, distinct pinned real-source evaluation set and source-evidence labels are reproducible; (2) actual CPU mT5 reproduced short, multitopic and repeated-long failure categories; (3) original plaintext/Markdown model-input observations are demonstrably independent of PDF/DOCX extraction while the unavailable original PDF remains untested; (4) a numerical Stage 10 seed regression protocol and proposed Stage 11/13 future gates have been frozen **before** optimization. Detailed evidence and caveats: `docs/STAGE9_BASELINE_SIGNOFF.md`.
+- **Model seed baseline:** user's five unique synthetic dev cases and three tiers: 15 successful outputs, 3/19 essential facts covered, 2/19 distorted, 14/19 omitted per unique tier; 3/8 assistant-drafted unsupported claims (weather warning label disputed); identical output text in all three length tiers for all five cases.
+- **Real project-source baseline:** user's two authentic repository Markdown dev documents (`medium` only) yielded 2 successful model outputs, 0/6 task-specific facts covered, 6/6 omitted, 0/2 broad claims unsupported under draft labelling. Measured repeated-four-gram fraction was **40%** on the architecture summary, **0%** on the plan summary, **20%** across the two; reported tokens averaged 34.5 including specials vs the 80-token medium cap. These are observations, **not independently human-validated accuracy claims**.
+- **Changed Files:** `benchmarks/quality_benchmark.py` (deterministic repeated-four-gram diagnostic, output budget, token count and cap diagnostics); `tests/test_quality_benchmark.py` (3 extra tests); `docs/STAGE9_BASELINE_SIGNOFF.md` (new formal source/protocol/triage report); `docs/POST_MVP_DEVELOPMENT_PLAN.md`, `docs/STAGE9_QUALITY_BASELINE.md`, this file (current status/protocol). **Architecture:** benchmark changes isolated from HTTP/ASGI and ML provider. **Added Dependencies:** none.
+- **Verification (assistant isolated environment):** `python -m pytest -q tests/test_quality_benchmark.py tests/test_project_document_dataset.py` **37 passed**; `python -m compileall -q benchmarks tests` **passed**; rescored user's real project dev outputs with the actual review fields: **0/6 coverage; 1/2 repeats; 0/2 exceed the medium cap**. The most recent **user-side full regression before these new changes** was **300 passed, 2 nonblocking warnings**. Full repository suite and Windows tests **not rerun after the three new tests**: report this as Not Run, not Passed.
+- **Frozen development gates for Stage 10:** unique synthetic fact coverage ≥8/19, zero critical direction reversals, no fact distortion, unsupported claim rate ≤12.5% under fixed claim segmentation, short/long distinct on ≥3/5 cases, authentic project documents ≥3/6 covered, architecture phrase repetition zero, and no API regression. They are **development regression gates**, not release thresholds. See `docs/STAGE9_BASELINE_SIGNOFF.md`.
+- **Known limitations / deferred release evidence:** no third-party approved multipage text PDF or real minutes, no original anecdotal eight-page PDF, no independently signed human labels, no representative 30–50-document/100-question set, no peak memory or warm-only CPU latency, no per-hierarchy-level tracing. Those are **recorded Stage 10/11 investigation and Stage 13 validation risks**; do not claim them met. Holdouts remain untouched; no tuning/model weights have changed.
+- **Next Stage Readiness:** **Stage 10 may begin on the frozen development benchmark with these caveats**. Production model-quality acceptance remains blocked until representative documents, independent review and held-out evaluation. This progress entry is not self-referential with a commit SHA; verify `main` head after commit.

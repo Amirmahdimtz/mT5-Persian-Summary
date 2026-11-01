@@ -127,3 +127,26 @@ def test_tokenizer_exception_propagates():
     chunker._model_provider.count_input_tokens = failed
     with pytest.raises(RuntimeError, match='tokenizer unavailable'):
         chunker.chunk('متن')
+
+
+def test_stage10_prefers_next_markdown_section_heading():
+    chunker = service(tokens=75, chars=100)
+    text = (
+        "آغاز گزارش که باید در بخش اول بماند. " * 2
+        + "\n\n## بخش دوم\n"
+        + "تصمیمات و اقدامات بخش دوم با تاریخ ۱۴ آبان بیان می‌شوند. "
+        + "نام مسئول و بودجه مشخص است. "
+    )
+    parts = chunker.chunk(text)
+    assert len(parts) >= 2
+    assert "".join(parts) == text
+    assert any(part.startswith("## بخش دوم") for part in parts[1:])
+    assert all(chunker.fits(part) for part in parts)
+
+
+def test_stage10_no_heading_still_preserves_all_original_characters():
+    chunker = service(tokens=20)
+    text = "بند اول. بند دوم. بند سوم. بند چهارم. پایان"
+    parts = chunker.chunk(text)
+    assert "".join(parts) == text
+    assert all(part.strip() and chunker.fits(part) for part in parts)

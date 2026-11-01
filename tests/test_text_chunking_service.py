@@ -132,7 +132,7 @@ def test_tokenizer_exception_propagates():
 def test_stage10_prefers_next_markdown_section_heading():
     chunker = service(tokens=75, chars=100)
     text = (
-        "آغاز گزارش که باید در بخش اول بماند. " * 2
+        "آغاز گزارش که باید در بخش اول بماند.\n\nزمینه بحث مرور شد."
         + "\n\n## بخش دوم\n"
         + "تصمیمات و اقدامات بخش دوم با تاریخ ۱۴ آبان بیان می‌شوند. "
         + "نام مسئول و بودجه مشخص است. "

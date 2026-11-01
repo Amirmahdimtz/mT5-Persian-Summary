@@ -5,7 +5,7 @@
 > **Branch:** `main`  
 > **Plan Version:** 1.0  
 > **Created:** 2026-11-01  
-> **Status:** Approved scope; implementation not started  
+> **Status:** Stage 9 engineering benchmark completed; Stages 10–13 not started  
 > **Architecture:** [Service_Architecture_Guide_FA.md](../Service_Architecture_Guide_FA.md)  
 > **MVP Plan:** [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md)  
 > **Implementation Record:** [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md)
@@ -17,13 +17,13 @@
 1. افزایش **کیفیت، پوشش اطلاعات، وفاداری به واقعیت و کنترل طول** در خلاصه‌سازی عمومی متن و سند فارسی.
 2. اضافه کردن یک قابلیت **مستقل و اختیاری** برای پرسیدن سؤال از سند یا دریافت خلاصه محدود به یک موضوع خاص، بدون الزام کاربران Endpointهای قبلی به ارسال `query`.
 
-این سند **نقشه راه توسعه** است، نه گزارش پیاده‌سازی. تمام مراحل ۹ تا ۱۳ در شروع `Not Started` هستند. تکمیل هشت مرحله MVP به معنی موفقیت معیارهای معنایی یا وجود قابلیت Document Query نیست.
+این سند **نقشه راه توسعه** است، نه گزارش پیاده‌سازی. وضعیت مراحل در جدول زیر به‌روزرسانی می‌شود؛ وضعیت آغازین آن‌ها `Not Started` بود. تکمیل هشت مرحله MVP یا Benchmark مرحله ۹ به معنی تأیید کیفیت معنایی یا وجود قابلیت Document Query نیست. مدارک بسته‌شدن Baseline مرحله ۹: [STAGE9_BASELINE_SIGNOFF.md](STAGE9_BASELINE_SIGNOFF.md).
 
 ### جدول مراحل و وابستگی‌ها
 
 | Stage | عنوان | محور | وابستگی | خروجی اصلی | وضعیت |
 | --- | --- | --- | --- | --- | --- |
-| **9** | Quality Benchmark & Root-Cause Analysis | کیفیت خلاصه | MVP موجود | دیتاست و گزارش Baseline قابل تکرار | Not Started |
+| **9** | Quality Benchmark & Root-Cause Analysis | کیفیت خلاصه | MVP موجود | دیتاست و گزارش Baseline قابل تکرار | Completed (diagnostic baseline only) |
 | **10** | General Summarization Quality Improvement | کیفیت خلاصه | 9 | Pipeline بهبودیافته با Benchmark مقایسه‌ای | Not Started |
 | **11** | Evidence-aware Extraction & Retrieval | Document Query | 9؛ اجزای استخراج موجود | بازیابی بخش‌های مرتبط همراه Source Location | Not Started |
 | **12** | Document Query API & Answering | Document Query | 11؛ استفاده مجدد از اجزای Stage 10 در صورت نیاز | Endpoint مستقل برای `answer` و `focused_summary` | Not Started |

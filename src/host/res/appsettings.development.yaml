@@ -21,5 +21,6 @@ model:
   queue_wait_seconds: 30.0  # Admission timeout, not generation timeout.
   num_beams: 2
   repetition_penalty: 1.0
+  no_repeat_ngram_size: 3  # Stage 10 dev-only trial; 0 restores the Stage 9 baseline.
   length_penalty: 2.0
   early_stopping: true

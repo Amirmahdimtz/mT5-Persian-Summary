@@ -86,7 +86,7 @@ No OCR is performed; the `anchors` must come from the original source or approve
 
 ## Results recorded in the authoring environment
 
-- `python -m pytest -q tests/test_quality_benchmark.py`: **21 passed** in isolated tooling workspace.
+- `python -m pytest -q tests/test_quality_benchmark.py`: **23 passed** in isolated tooling workspace.
 - `python -m compileall -q benchmarks tests`: **passed** in isolated tooling workspace.
 - `python -m benchmarks.quality_benchmark validate`: **passed**, seven cases, `dev=5`, `holdout=2`.
 - `python -m benchmarks.quality_benchmark run` with the **real** mT5 model: **Not Run**, no working full checkout or Transformers/checkpoint access in the execution sandbox. Mock-injected test wiring is not real inference.

@@ -95,3 +95,38 @@ The `stage10_compare` report intentionally marks `stage10_quality_gate: NOT_EVAL
 - **Not yet verified:** actual candidate CPU outputs, semantics, reliable mean/warm latency, peak RSS, PDF/DOCX E2E, holdouts, full Windows suite after this change. All remain **Not Run / Unreviewed** until evidence is provided.
 
 **Stage 10 status: In Progress**, not Completed. Next decision: evaluate candidate on the two fixed dev benchmarks, review atomic factual labels, and iterate on map/reduce only when comparisons demonstrate specific residual failures.
+
+
+## 5. First Windows candidate result and Stage 8 regression correction (2026-11-01)
+
+The user pulled Stage 10 candidate v1 and ran:
+- `python -m pip check`: **No broken requirements found**.
+- `python -m compileall -q src benchmarks tests`: **no reported errors**.
+- `python -m pytest -q`: **318 passed, 1 failed, 2 nonblocking warnings** on the uncorrected candidate head. The sole failure was `tests/test_stage8_delivery.py::test_model_settings_are_unchanged_between_profiles`: it assumed exact profile equality despite the intentionally different `no_repeat_ngram_size` (production 0 versus development 3). This is a **test-contract regression**, not evidence of a tokenizer, API or model crash.
+- Actual pinned CPU model `quality_benchmark run --split dev`: **Saved raw model outputs** for the same five synthetic dev cases × three lengths.
+- Paired `benchmarks.stage10_compare`: **15 matched pairs, 0 changed outputs**, `semantic quality NOT REVIEWED`.
+- `quality_benchmark review-template`: produced `local_stage10_seed_dev_review_v1.json` with **null/unreviewed** labels.
+
+**Decision: Candidate v1 is NO-GO for the frozen synthetic-development improvement targets.** Since the raw comparator reported byte-identical summaries on all 15 matching case/tier pairs, this trial cannot improve factual coverage, correct the two direction inversions, or differentiate short/long behavior on those synthetic cases. There is no benefit in scoring those same outputs as though they were independent new content. This observation does **not** prove that the repetition control is inert on the authentic Markdown architecture document (that case was not run for candidate v1).
+
+**Corrective patch:** the Stage 8 profile parity test is updated to require **all model settings except the explicitly approved `no_repeat_ngram_size` experimental knob to match**; it separately asserts production=0 and development=3. This preserves strict model revision/resource/beam checks and no longer conflicts with the intended Stage 10 trial. No configuration values, API behavior, model weights or Runtime Provider code were changed by that patch.
+
+**Verification required on Windows after pulling the correction:**
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage8_delivery.py tests/test_mt5_model_provider.py tests/test_stage10_compare.py
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+The corrected test and full suite have **not** yet been rerun by the user or on a full cloned repository in the assistant environment. Do not report 319 passed until actually observed.
+
+**Next experiment:** use the *already prepared* project-document dataset and the previously recorded `local_quality_project_dev_run1.json` (medium, two authentic Markdown documents). Run the candidate with the same dataset and compare it to see whether the actual repetitive architecture output changes:
+
+```powershell
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json run --split dev --lengths medium --output local_stage10_project_dev_candidate_v1.json
+.\.venv\Scripts\python.exe -m benchmarks.stage10_compare --dataset local_quality_project_v1.json --baseline local_quality_project_dev_run1.json --candidate local_stage10_project_dev_candidate_v1.json --output local_stage10_project_dev_compare_v1.json
+```
+
+If either named output file already exists, use a new versioned filename (the Benchmark intentionally refuses overwrite). These are only **two local dev documents**. Keep the reserved holdout untouched. Regardless of whether repetition changes, the future quality GO decision still requires reviewed facts/claims and evidence of stronger coverage than Stage 9. If this second experiment also fails, diagnose map/reduce intermediates and compare targeted chunking/generation ablations instead of claiming a model-quality improvement.

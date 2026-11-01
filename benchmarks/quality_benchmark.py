@@ -84,7 +84,8 @@ def validate_dataset(data: dict[str, Any]) -> list[dict[str, Any]]:
                 raise BenchmarkInputError(f"{ident}: invalid fact")
             fid, quote = fact.get("id"), fact.get("source_quote")
             if (not isinstance(fid, str) or not fid.isidentifier() or fid in fact_ids
-                    or fact.get("type") not in FACT_TYPES or not isinstance(quote, str)
+                    or not isinstance(fact.get("type"), str) or fact["type"] not in FACT_TYPES
+                    or not isinstance(quote, str)
                     or not quote.strip() or quote not in expanded):
                 raise BenchmarkInputError(f"{ident}: invalid fact label or source quote")
             fact_ids.add(fid)
@@ -241,7 +242,11 @@ async def execute_async(dataset_path: Path, output_path: Path, lengths: list[str
         "dataset_sha256": dataset_hash(dataset_path), "dataset_version": dataset["version"],
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "python": platform.python_version(), "platform": platform.platform(),
-        "model_settings": settings, "split": split,
+        "model_settings": {key: settings[key] for key in (
+            "id", "revision", "device", "max_input_tokens", "max_input_characters",
+            "max_output_tokens", "num_beams", "repetition_penalty", "length_penalty",
+            "early_stopping", "max_concurrent_inferences", "queue_wait_seconds"
+        ) if key in settings}, "split": split,
         "results": outputs,
         "limitations": "No human fact review performed; summary shape and token counts do not prove factual accuracy. Peak RAM not measured."
     })

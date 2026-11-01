@@ -81,3 +81,12 @@ def test_failed_candidate_inference_is_visible_not_silently_ignored():
     assert row["candidate_error"] == "ModelInferenceError"
     assert row["outputs_identical"] is None
     assert report["different_successful_outputs"] == 0
+
+
+def test_metadata_comparison_does_not_leak_unknown_private_fields():
+    dataset, baseline, candidate = pair()
+    baseline["model_settings"]["private_token"] = "do-not-echo"
+    candidate["model_settings"]["api_key"] = "do-not-echo"
+    report = compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
+    assert "private_token" not in report["baseline_generation"]
+    assert "api_key" not in report["candidate_generation"]

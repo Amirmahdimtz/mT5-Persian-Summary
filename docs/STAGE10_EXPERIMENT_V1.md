@@ -130,3 +130,44 @@ The corrected test and full suite have **not** yet been rerun by the user or on 
 ```
 
 If either named output file already exists, use a new versioned filename (the Benchmark intentionally refuses overwrite). These are only **two local dev documents**. Keep the reserved holdout untouched. Regardless of whether repetition changes, the future quality GO decision still requires reviewed facts/claims and evidence of stronger coverage than Stage 9. If this second experiment also fails, diagnose map/reduce intermediates and compare targeted chunking/generation ablations instead of claiming a model-quality improvement.
+
+
+## 6. Authentic-document candidate v1 results and Stage 10 diagnostic trace (2026-11-01)
+
+**User-side verification after the Stage 8 profile-test correction:**
+- Targeted `tests/test_stage8_delivery.py tests/test_mt5_model_provider.py tests/test_stage10_compare.py`: **40 passed, 1 deprecation warning**.
+- Full regression `pytest -q`: **319 passed, 2 nonblocking deprecation warnings** (14.22s).
+- The pinned CPU mT5 **development** project-document candidate run completed, and raw comparison reported **paired=2, changed=2, semantic quality NOT REVIEWED**. Holdout was not run.
+- `local_stage10_project_dev_candidate_v1.json` has dataset SHA-256 `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c`, `no_repeat_ngram_size=3`, and the unchanged model checkpoint revision.
+
+| Real dev case | Stage 9 baseline | Stage 10 v1 candidate | Four-gram duplication | Observed elapsed time |
+| --- | --- | --- | --- | --- |
+| `real_architecture_guide` | Repetitive generic ChatGPT sentence, 122 chars | Single generic ChatGPT-use sentence, **65 chars** | **40% → 0%** | 75.247s → 97.133s |
+| `real_mvp_plan` | Generic description of Persian mT5 service, 61 chars | Same generic purpose plus vague sentence about execution rules, **122 chars** | **0% → 0%** | 50.958s → 69.982s |
+
+**Source-grounded assistant draft review (NOT independently signed off):** the candidate still omits **all six** pinned domain facts (**0/6 covered, 6/6 omitted, 0 distorted**), unchanged from Stage 9. The architecture line is broadly supported by the guide's stated objective; the MVP plan's broad project-purpose line is supported by the title. Its extra sentence about inspecting execution rules for repository source execution is **judged unsupported as phrased** because it conflates nearby concepts; this last label is reviewer-sensitive. At most **one of three** candidate claims is unsupported under that provisional segmentation (33.33%), versus **zero of two** generic claims at baseline. The observed two-call total is 167.115s vs 126.205s in Stage 9; these are not matched warm CPU latency trials, so **no performance regression claim is proven**.
+
+**Decision: NO-GO for candidate v1 general quality promotion.** It meets the **repetition control** sub-gate on the architecture example but fails the **authentic fact coverage ≥3/6** requirement and adds a possible unsupported claim. Also, **0/15** synthetic dev outputs changed in the prior paired experiment, so candidate v1 did not improve that fixed seed. It is a **combined change** (decoder repetition constraint plus shared Markdown-boundary heuristic), so these observations cannot isolate which change produced the revised outputs. Do not claim the model is semantically better or change the frozen Stage 9 gates.
+
+### Safe next diagnostic: map/reduce inference-call trace
+
+`benchmarks.stage10_trace` is an optional **offline, developer-only** command. It calls the **existing** DI-resolved `LongTextSummarizationService` and wraps the existing provider method temporarily in its own CLI process. It captures per-call input/output character counts, elapsed time, bounded output tokens, simple lexical repetition, whether a call's input is a literal substring of the normalized source and **exact** fact-quote IDs found in inputs/outputs. It **does not store any source text, model output text, quotations or exception details** in the trace JSON. It rejects holdout case IDs and will not overwrite an existing output.
+
+This diagnostics format only checks **literal phrase presence**: a semantically correct paraphrase may not contain the full quote, so a missing quote in a map output is not proof that the fact was lost. The trace allows us to prioritize the next controlled debugging experiment without altering HTTP services, production logging, checkpoint weights or model parameters.
+
+To run **one authentic development case** on the Windows CPU environment:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_trace.py
+.\.venv\Scripts\python.exe -m pytest -q
+
+.\.venv\Scripts\python.exe -m benchmarks.stage10_trace --dataset local_quality_project_v1.json --case-id real_architecture_guide --length medium --output local_stage10_trace_architecture_v1.json
+```
+
+The command performs **real inference again**; only run on a development document authorized for local testing. Upload the small `local_stage10_trace_architecture_v1.json` diagnostic file, not the full original document. Note that the trace metadata is a test diagnostic, **not** a proof of fact preservation or a complete performance profile.
+
+**Local assistant verification:** new trace tooling was checked using an isolated, fake-model Python suite: `43 passed` across Stage 9 benchmark, Stage 10 comparator and trace tests; compileall passed. No actual model weights or complete Windows suite ran **after adding the trace**, so user-side rerun is required.
+
+**Stage 10 remains In Progress.**

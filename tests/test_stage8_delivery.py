@@ -70,9 +70,19 @@ def test_health_and_openapi_are_served_without_loading_model():
             assert "post" in schema.json()["paths"][f"/api/v1/summarization/{route}"]
 
 
-def test_model_settings_are_unchanged_between_profiles():
+def test_model_settings_match_except_explicit_stage10_development_trial():
     base = yaml.safe_load((ROOT / "src/host/res/appsettings.yaml").read_text(encoding="utf-8"))
     dev = yaml.safe_load((ROOT / "src/host/res/appsettings.development.yaml").read_text(encoding="utf-8"))
-    assert base["model"] == dev["model"]
+
+    # Stage 10 intentionally trials n-gram blocking only in development.
+    # Keep every other setting, especially model identity and resource budgets,
+    # identical across profiles instead of disabling the Stage 8 safety check.
+    assert base["model"]["no_repeat_ngram_size"] == 0
+    assert dev["model"]["no_repeat_ngram_size"] == 3
+    comparable = lambda settings: {
+        key: value for key, value in settings.items()
+        if key != "no_repeat_ngram_size"
+    }
+    assert comparable(base["model"]) == comparable(dev["model"])
     assert base["model"]["revision"] == "b575560ad967050e77a40f907abb1ebbeefb9a15"
     assert base["model"]["max_concurrent_inferences"] == 1

@@ -109,3 +109,12 @@ The user executed the Stage 9 benchmark on Windows 11, Python 3.12.10, CPU, with
 - **Not measured:** peak RAM, actual eight-page PDF extraction, representative 30–50-document dataset, independent human review, and held-out model results. The 2-case holdout remains unrun for model-tuning purposes.
 
 **Status remains In Progress.** The initial real-model seed run and full code regression are confirmed, while Stage 9 acceptance still depends on human-confirmed labels, representative sources and agreed Stage 10 go/no-go thresholds.
+
+## Stage 9 follow-up: five-case audit, reference corpus and provisional gates (2026-11-01)
+
+- See [STAGE9_SEED_AUDIT_AND_GATES.md](STAGE9_SEED_AUDIT_AND_GATES.md) for a case-by-case factual audit of the **five unique** user-generated mT5 outputs, exact fact-label tallies, ambiguous weather-warning wording and proposed Stage 10 quantitative thresholds.
+- A new pinned **reference-only real corpus manifest**, `benchmarks/fixtures/real_project_documents_v1.json`, references three authentic in-repository Persian documents without embedding their content or claiming CC0 ownership. It is materialized with `python -m benchmarks.project_document_dataset --output local_quality_project_v1.json` and then evaluated through `python -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json ...`. It includes two dev cases and one reserved holdout.
+- Local authoring-environment checks: **32 passed** for original Stage 9 and new manifest tests; **no model inference** on the new documents yet. Two available authentic document byte hashes and evidence phrases were validated locally; the third document's Git blob and source snippets were checked against GitHub, but complete corpus preparation must run in a real cloned repository.
+- **No authentic independent meeting minutes, original text-based PDF or DOCX are attached/available**. The real repository sources are Markdown, not a substitute for PDF extraction diagnosis. A representative external-document benchmark and independent sign-off remain blockers.
+- The proposed seed gates (**≥8/19 covered, zero two critical inversions, ≤12.5% unsupported claims, ≥3/5 length differentiation**) are diagnostic **pre-tuning targets**, not production acceptance thresholds until reviewed and extended to representative real documents.
+- **Status remains In Progress**; no Stage 10 production pipeline or model configuration has been changed.

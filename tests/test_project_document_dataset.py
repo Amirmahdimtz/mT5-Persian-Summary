@@ -29,8 +29,34 @@ def test_project_dataset_validates_without_relicensing(tmp_path):
     manifest = sample(tmp_path)
     dataset = prepare(manifest, tmp_path)
     assert dataset["license"] == "PROJECT-REFERENCE-ONLY"
-    assert dataset["cases"][0]["text"] == (tmp_path / "sample.md").read_text(encoding="utf-8")
+    assert dataset["cases"][0]["text"] == (tmp_path / "sample.md").read_bytes().decode("utf-8")
     assert len(validate_dataset(dataset)) == 2
+
+
+def test_windows_crlf_checkout_matches_pinned_lf_git_blob(tmp_path):
+    manifest = sample(tmp_path)
+    path = tmp_path / "sample.md"
+    lf_content = "صورت جلسه آزمایشی در ۱۴ آبان نوشته شد.\n"
+    path.write_bytes(lf_content.encode("utf-8"))
+    manifest["cases"][0]["source_git_blob_sha1"] = git_blob_sha1(path.read_bytes())
+    manifest["cases"][1]["source_git_blob_sha1"] = git_blob_sha1(path.read_bytes())
+
+    path.write_bytes(lf_content.replace("\n", "\r\n").encode("utf-8"))
+    dataset = prepare(manifest, tmp_path)
+    assert dataset["cases"][0]["text"] == lf_content
+    assert dataset["cases"][1]["text"] == lf_content
+
+
+def test_windows_crlf_checkout_still_rejects_changed_content(tmp_path):
+    manifest = sample(tmp_path)
+    path = tmp_path / "sample.md"
+    lf_content = "صورت جلسه آزمایشی در ۱۴ آبان نوشته شد.\n"
+    sha = git_blob_sha1(lf_content.encode("utf-8"))
+    for case in manifest["cases"]:
+        case["source_git_blob_sha1"] = sha
+    path.write_bytes("صورت جلسه آزمایشی در ۱۵ آبان نوشته شد.\r\n".encode("utf-8"))
+    with pytest.raises(BenchmarkInputError, match="Git blob SHA changed"):
+        prepare(manifest, tmp_path)
 
 
 def test_git_blob_integrity_detects_changes(tmp_path):

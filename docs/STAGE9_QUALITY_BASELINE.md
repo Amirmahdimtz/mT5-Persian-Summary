@@ -93,3 +93,19 @@ No OCR is performed; the `anchors` must come from the original source or approve
 - End-to-end old 266-test suite, source extraction on the user's actual PDF, full-size quality dataset, and manual factual reviews: **Not Run / Not Available** in this environment.
 
 These results must be updated with actual user-side baseline output before the stage is called Completed. Do not commit raw local output/review files; run them in a private directory or keep the `local_quality_*` files untracked.
+
+## User-side baseline evidence — 2026-11-01
+
+The user executed the Stage 9 benchmark on Windows 11, Python 3.12.10, CPU, with the pinned model `nafisehNik/mt5-persian-summary` at revision `b575560ad967050e77a40f907abb1ebbeefb9a15`. These are **observed user-submitted results**, not reproduced in the assistant execution environment.
+
+- Targeted tests: **23 passed** in 3.42 seconds.
+- Entire project regression suite: **289 passed, 2 nonblocking deprecation warnings** in 15.42 seconds; this confirms compatibility but does not establish semantic correctness.
+- Dataset validation: **7 cases; dev=5, holdout=2**, SHA-256 `cc907d6b16a4b68685b280002bb0a0f550ce6ce3966941c8732702c016f8a9a9`.
+- Real model run: **15 successful results, 0 reported model errors** (5 development cases × 3 length tiers). The user generated `local_quality_dev_run1.json` and a separate unreviewed template. Do not commit those local artifacts.
+- All **5/5 development cases** produced **exactly identical text** for `short`, `medium` and `long`. Output token counts (including specials) ranged **19–33**, below configured generation ceilings of 40/80/120.
+- Recorded end-to-end per-call elapsed time totaled **253.064 seconds** across 15 calls, including a **114.048-second first call** (likely model loading/cold start, not proven). These timings are not comparable CPU latency benchmarks without controlled warm-up and environment normalization.
+- Qualitative fact checks against the versioned source: `multitopic_pollution` inverted the intended **decrease** in pollution into an **increase**; `budget_report` inverted an expense **increase** from 30 to 36 million into a **decrease**; `meeting_decisions` retained the first meeting date but omitted owners, deadlines, next meeting and the budget. The education and weather cases also omitted essential listed facts. These are **model-output observations**, not PDF extraction results.
+- A provisional **assistant-proposed** fact/claim annotation (not yet independently human-verified) gives **3/19 covered facts (15.8%), 2/19 distorted facts (10.5%), 14/19 omitted facts (73.7%) per tier**. Across the three identical tiers, this becomes 9/57, 6/57 and 42/57; these are repeated observations, **not 57 independent facts**. Provisional unsupported atomic claims are **3/8 (37.5%) per tier**; the `weather_short` “warning” claim is judgement-sensitive. These metrics must **not** be frozen as the representative accepted quality baseline before reviewer sign-off.
+- **Not measured:** peak RAM, actual eight-page PDF extraction, representative 30–50-document dataset, independent human review, and held-out model results. The 2-case holdout remains unrun for model-tuning purposes.
+
+**Status remains In Progress.** The initial real-model seed run and full code regression are confirmed, while Stage 9 acceptance still depends on human-confirmed labels, representative sources and agreed Stage 10 go/no-go thresholds.

@@ -15,3 +15,6 @@ build/
 # Stage 9 local benchmark output and manual reviews (may contain source content)
 /local_quality_*.json
 /local_extraction_*.json
+
+# Stage 10 candidate outputs and human review files (never commit input text)
+/local_stage10_*.json

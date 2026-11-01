@@ -67,6 +67,12 @@ class Mt5ModelProvider:
         self._length_penalty = self._require_float(
             settings, "length_penalty", lower=0.0, inclusive=False
         )
+        # Stage 10 candidate knob. 0 retains the original decoding behavior.
+        # Nonzero values block repeated decoder n-grams without changing weights.
+        repeat_ngram = settings.get("no_repeat_ngram_size", 0)
+        if type(repeat_ngram) is not int or not 0 <= repeat_ngram <= 6:
+            raise ConfigurationError("model.no_repeat_ngram_size must be an integer in [0, 6]")
+        self._no_repeat_ngram_size = repeat_ngram
         self._early_stopping = settings.get("early_stopping")
         if type(self._early_stopping) is not bool:
             raise ConfigurationError("model.early_stopping must be a boolean")
@@ -268,6 +274,7 @@ class Mt5ModelProvider:
                         num_beams=self._num_beams,
                         repetition_penalty=self._repetition_penalty,
                         length_penalty=self._length_penalty,
+                        no_repeat_ngram_size=self._no_repeat_ngram_size,
                         early_stopping=self._early_stopping,
                         do_sample=False,
                     )

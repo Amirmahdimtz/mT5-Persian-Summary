@@ -55,7 +55,15 @@ def prepare(manifest: dict[str, Any], repo_root: Path) -> dict[str, Any]:
             raise BenchmarkInputError("real document exceeds input byte budget")
         raw = path.read_bytes()
         if git_blob_sha1(raw) != sha:
-            raise BenchmarkInputError(f"{rel}: Git blob SHA changed; re-approve the source and facts")
+            # Git may check out LF text blobs with CRLF on Windows (core.autocrlf).
+            # Only accept newline normalization if the EXACT pinned blob matches;
+            # any other byte change must still fail closed.
+            lf_content = raw.replace(b"\r\n", b"\n")
+            if git_blob_sha1(lf_content) != sha:
+                raise BenchmarkInputError(
+                    f"{rel}: Git blob SHA changed; re-approve the source and facts"
+                )
+            raw = lf_content
         try:
             source = raw.decode("utf-8-sig", errors="strict")
         except UnicodeError as exc:

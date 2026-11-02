@@ -572,3 +572,32 @@ $env:env_type = 'development'
 Share only the metadata report `local_stage10_lead_budget_preflight_v3_2.json`. If the actual tokenizer can fit the expected source quotes, consider a **single controlled v4 runtime experiment** that combines intro evidence with already-successful architecture bullets, while preserving final 80-token cap and source context. If not, do not blindly expand token limits or inject reference facts.
 
 **Verification honesty:** the prior **369 Windows Passed** is from before these changes. The new budget-preflight implementation and tests are committed but the Windows suite and real tokenizer preflight have **not yet been run**. Stage 10 **In Progress**, candidate v3.2 not approved for release.
+
+## 17. v3.2 lead-budget preflight: 80-token candidate still misses two MVP facts (2026-11-02)
+
+**Observed Windows result:** user pulled `abf61d8f67a2ab8ab11a1b1291f04d6c438baf59`; Python `compileall -q src benchmarks tests` clean; focused selector-audit suite **13 passed** (1.96s); complete `pytest -q` **373 passed, 2 nonblocking deprecation warnings** (32.65s). The real pinned tokenizer preflight `--preview-lead-prose --preview-lead-budget` succeeded for the same two immutable Development documents; **zero mT5 inference calls**. The output remains metadata only and `semantic_review_status=NOT_REVIEWED`.
+
+| Development case | Lead fragments | Source sentences selected within medium 80-token cap | Actual encoded tokens | Reference facts verbatim in the selected lead |
+| --- | ---: | ---: | ---: | --- |
+| `real_architecture_guide` | 2 | **0** | 0/80 | **0/3**, expected: all 3 are already covered by the *bullet* source channel |
+| `real_mvp_plan` | 17 | **2** | **76/80** | **1/3** (`file_formats`), while `multi_file` and `eight_stages` are still missing |
+
+**Decision:** naïvely substituting the current ranked lead preview for the source-grounded final v3.2 output is **not enough**. The architecture document must keep its already-successful bullet selector. The MVP document's two high-ranked prose sentences consume 76 tokens but include only one pinned fact; the ranker favors a redundant generic purpose statement. The evidence supports a **source-selection and constrained budget-allocation issue**; it does not show that other valid shorter phrases, improved ranking, or paraphrases cannot fit more facts under the same cap.
+
+### Next diagnostic before runtime Candidate v4
+
+Add the explicit `--preview-reference-floor` to the *offline-only* `benchmarks.stage10_selector_audit` (requires the two existing lead flags). It counts the tokenizer cost of **each immutable fact's source_quote** and of their direct newline-joined string; output includes only fact IDs, counts and a combined fit boolean, never the quotes. This is a **token-cost proxy for benchmark source spans**, not a mathematical lower bound on a correct semantic summary and **not a valid candidate summary**: reference quotes may be incomplete and any faithful summary could be shorter or longer. It is solely to distinguish the cost of source-span coverage from wasted general-purpose lines. No data-driven facts are injected into the runtime, Map ranker, Reduce prompt or Production.
+
+PowerShell in project root:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_selector_audit.py
+.\.venv\Scripts\python.exe -m pytest -q
+
+.\.venv\Scripts\python.exe -m benchmarks.stage10_selector_audit --dataset local_quality_project_v1.json --runs local_stage10_project_dev_candidate_v3_2.json --preview-lead-prose --preview-lead-budget --preview-reference-floor --output local_stage10_reference_floor_v3_2.json
+```
+
+**Verification:** three new reference-proxy tests added, not yet rerun in full Windows environment. Last verified Windows full suite was **373 passed** on prior head. The source comparison and helper have no model calls; no new real CPU candidate or holdout run has been authorized/needed. Stage 10 stays **In Progress**, v3.2 remains an unapproved Development candidate. No changes to model checkpoint, decoder, default API behavior or synthetic gate thresholds.

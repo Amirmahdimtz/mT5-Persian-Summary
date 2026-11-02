@@ -819,3 +819,22 @@ All **15/15** Development case/tier outputs succeeded (five sources × `short`, 
 ```
 
 Have a human reviewer independently label each fact and each atomic claim across the **15** outcomes, with exact source evidence, especially source polarity and omitted context. Once verified, use `score` with a separately saved reviewed file; distinguish mechanical review completeness from independent adjudication. Consider a decision record comparing optional Extractive mode with the project's mT5-based abstractive objective, rather than shipping v5 as an invisible replacement.
+
+## 25. Synthetic v5 `score` completed using assistant draft annotations (2026-11-02)
+
+The user executed `score` successfully on the 15-run v5 `source_sentence_only_no_model_generate` Synthetic Development artifact, with `--reviews local_stage10_synthetic_dev_review_v5_assistant_draft.json`, and uploaded `local_stage10_synthetic_dev_score_v5_provisional.json`. This is **the assistant's annotations**, not a signed-off human evaluation. The scoring CLI reported `reviewed=15, unreviewed=0`; the CLI checks review completeness/schema and evidence quotes, **not human-reviewer independence or semantic entailment**.
+
+**Exact report fields, independently checked against the uploaded v5 run and review draft:** `runs=15`, `successful_runs=15`, `reviewed_runs=15`, `unreviewed_successful_runs=0`, `claims_reviewed=49`, `unsupported_claim_rate=0.0` **according to assistant labels**, `fact_counts={covered:33, omitted:24, distorted:0}` over *all three tiers*. Dataset SHA `cc907d6b16a4b68685b280002bb0a0f550ce6ce3966941c8732702c016f8a9a9`; draft `runs_sha256` `9753e81679f6bd9a33db1958d2d1a26666f90bcdb7d0accb456d32ca78a585f7`, matching paired comparator. The **57 total fact labels** are 19 unique benchmark facts repeated at **three** summary lengths. They must not be misrepresented as 57 independent source facts.
+
+| Tier | Covered / 19 facts | Omitted / 19 | Distorted | Atomic claims in assistant draft | Mean encoded output tokens / fixed ceiling |
+| --- | ---: | ---: | ---: | ---: | --- |
+| `short` | 4 | 15 | 0 | 7 | 30.0 / 40 |
+| `medium` | **11** | **8** | **0** | 18 | 61.6 / 80 |
+| `long` | 18 | 1 | 0 | 24 | 86.0 / 120 |
+| All three lengths | **33 / 57 labels** | **24 / 57** | **0** | **49** | 0 over token caps |
+
+All fifteen score diagnostics report no repeated four-grams. The uploaded raw v5 run shows that `short != long` on **5/5** distinct sources. On the assistant's provisional labels, the frozen synthetic medium coverage threshold **>=8/19**, zero recorded critical inversions/distortions, <=12.5% unsupported labels and >=3/5 length contrast are *numerically* satisfied. This does not establish objectively validated semantic fidelity: original sentences may lose qualifying negation/context, reviewers may disagree on atomic claim segmentation, and the extractive mode is **not mT5 generation**. Direct model-generated v4 remains NO-GO on synthetic correctness.
+
+**Decision:** Candidate v5 is a useful extractive baseline, **NOT independently approved for Stage 10 completion or Production**. A separate reviewer must actually verify each of 19 benchmark facts per tier (57 labels in total) and 49 segmented atomic claims using original documents, context and exact source-quote evidence. Save separately as `local_stage10_synthetic_dev_review_v5_independently_verified.json` **only after real review**, then score that review. Do not rename/copy the assistant draft as a substitute. Holdouts remain sealed and `--source-sentence-final` is still opt-in Development only.
+
+**Next engineering decision after review:** explicitly compare a source-only extractive option versus the project goal of dependable abstractive mT5 summaries; do not claim a model improvement or turn v5 on globally. The protocol still requires representative authorized Persian TXT, selectable PDF and DOCX documents, including hard cases for negation and cross-sentence reference, and measured resource/latency before any Production recommendation. No new tests or source code changes are part of this review-record update.

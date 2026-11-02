@@ -852,3 +852,34 @@ An illustrative **10 exact-string anchor** selection drawn from the uploaded TXT
 **Root-cause risk requiring a targeted regression test before changing code:** the Stage 10 opt-in `source_sentence_final` selector enumerates newline-separated lines and only accepts punctuation-terminated lines as complete sentences. A PDF text extractor may insert display wraps in the middle of sentences; the selector can then emit an *orphaned suffix* such as `قالب های مختلف تهیه شده است.` or `شود و خواننده بتواند ...`, dropping the preceding subject and conditions. That is a potential semantic faithfulness failure despite exact source substring matching. Do not enable v5 Extractive as API default until paragraph-aware sentence assembly, safe quote/negation context handling and representative document tests are evaluated.
 
 **Next local verification:** place the three uploaded files and a UTF-8 anchor file in the project root; invoke `python -m benchmarks.quality_benchmark inspect-extraction --file persian_test.txt|pdf|docx --anchors persian_stage10_anchors.txt --output ...` individually using the verified repository CLI. Compare the `exact_anchor_recall` and character counts; the CLI measures extraction, not summary generation. Next, design representative source tests and choose whether to fix paragraph assembly in Stage 10 (minimal isolated change, regression tests, opt-in preserved). No new source code, API behavior, benchmark thresholds, dependencies or model settings have changed in this assessment; Stage 10 remains **In Progress / NO-GO**, and independently validated semantic review is still missing.
+
+## 27. v5 PDF layout-wrap sentence assembly correction (2026-11-02)
+
+Following the user's clarification that TXT/PDF/DOCX were intentionally authored as **the same test document** and their instruction to proceed, a **targeted Stage 10 opt-in v5 correction** was made in `src/core/services/summarization/long_text_summarization_service.py`, method `_source_sentence_candidates`. The default summarization path, FastAPI contracts, DI wiring, `mT5.generate` configuration, frozen Stage 9 benchmark fixtures, holdout isolation and production flags were **not changed**.
+
+**Reproduced source failure:** in the local code-equivalent `pypdf` layout+RTL extraction of `persian_test.pdf`, physical lines can be separated by a blank line even when they are halves of one logical Persian sentence. The previous v5 parser split by `source.splitlines()` and accepted only punctuation-ended physical lines. This admitted orphaned fragments such as `قالب های مختلف تهیه شده است.` and `شود و خواننده بتواند ...` without their preceding subjects, contradicting the claim that v5 always selects full source sentences.
+
+**Scoped correction:** the parser accumulates prose segments across one PDF-style blank spacer when the preceding physical line does not end in terminal punctuation; it flushes on two consecutive blank lines or completed sentence boundaries and before Markdown headings, excluded scopes, code fences, table rows and list bullets. Numbered section headings such as `۱ . مقدمه` are explicitly treated as boundaries. As before, an extracted candidate must have an end-of-sentence marker, be Persian, be between 12 and 350 characters, be deduplicated, and fit the provider's exact token limit at final selection. Rejoining inserts a space between physical lines: the result is **source-derived and whitespace-normalized, not byte-exact substring output**. It does not semantically verify context or restore missing ZWNJ/diacritics in PDF glyphs.
+
+**Regression tests added** in `tests/test_stage10_source_sentence_v5.py`: one-blank PDF physical wrap with numbered heading, two-blank/Markdown-excluded separation, and preservation of a negated/hypothetical sentence spanning PDF physical lines. The previously existing fake-provider/source-only/holdout tests remain. In an **offline independent preflight** on the prior 5.9.0 pypdf RTL-corrected text, 33 reconstructed sentence candidates were obtained and the two observed orphaned fragment starts were no longer emitted as standalone candidates. No representative production dataset or real mT5 generation was used.
+
+**Unresolved validation:** this container has `pypdf 5.9.0` and no installed model `transformers`, while the Repository requires `pypdf>=6.21.2,<7.0`; the patch has **NOT** been tested in the user Windows environment or against the repo's full 398-test suite. The last user-confirmed result (before this code change) remains `398 passed, 2 warnings`. Need verify new tests and source extraction separately on Windows. Do not mistake preflight results or unchanged Synthetic v5 11/19 assistant labels for post-fix independent semantic approval. Stage 10 **In Progress / NO-GO**.
+
+### Verification commands on the user's existing Windows project
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_source_sentence_v5.py tests/test_long_text_summarization_service.py tests/test_document_extraction_service.py
+.\.venv\Scripts\python.exe -m pytest -q
+foreach ($ext in @('txt', 'pdf', 'docx')) {
+    .\.venv\Scripts\python.exe -m benchmarks.quality_benchmark inspect-extraction `
+        --file ".\persian_test.$ext" `
+        --anchors ".\persian_stage10_anchors.txt" `
+        --output ".\local_stage10_extraction_$ext.json"
+}
+Get-Content .\local_stage10_extraction_*.json -Raw
+```
+
+The three original files plus `persian_stage10_anchors.txt` must exist in the user's project root before these diagnostics. The extraction CLI is **not a model benchmark**. The known 10 exact anchors intentionally include ZWNJ-sensitive phrases; PDF exact-match misses may occur even if the meaning is intact. Do **not** replace the independent human Review or unlock holdouts based on extraction scores.

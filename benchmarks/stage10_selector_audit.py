@@ -108,6 +108,42 @@ def lead_prose_budget_preflight(
     return [value for _, value in chosen], tokens
 
 
+def reference_quote_budget_floor(
+    facts: list[dict[str, Any]], count_tokens: Any, max_tokens: int,
+) -> dict[str, Any]:
+    """Dev-only feasibility lower bound; NOT a runtime selection strategy.
+
+    The reference source_quote strings are benchmark labels that may be
+    incomplete sentences. They must never feed the service, generation
+    prompt, ranker, or production API.
+    """
+    if type(max_tokens) is not int or max_tokens < 1:
+        raise BenchmarkInputError("invalid reference quote budget")
+    quotes = [fact["source_quote"] for fact in facts]
+    if not quotes or any(not isinstance(q, str) or not q.strip() for q in quotes):
+        raise BenchmarkInputError("reference quotes must be nonempty strings")
+    all_quotes = "\n".join(quotes)
+    counts = [count_tokens(q) for q in quotes]
+    joined_count = count_tokens(all_quotes)
+    if any(type(n) is not int or n < 1 for n in [*counts, joined_count]):
+        raise BenchmarkInputError("tokenizer returned invalid reference quote counts")
+    return {
+        "reference_quote_count": len(quotes),
+        "individual_source_quote_tokens": [
+            {"fact_id": fact["id"], "tokens_including_specials": count}
+            for fact, count in zip(facts, counts)
+        ],
+        "combined_source_quote_tokens": joined_count,
+        "combined_quotes_fit_final_budget": joined_count <= max_tokens,
+        "final_medium_token_budget": max_tokens,
+        "notes": (
+            "Reference quotes are benchmark-only partial source spans. "
+            "Their token count is a feasibility lower bound, not a valid "
+            "summary, a runtime selector, or an acceptable generated target."
+        ),
+    }
+
+
 def audit_case(case: dict[str, Any], final_text: str, chunks: list[str],
                selector: Any, excluded: set[str],
                lead_prose: list[str] | None = None,
@@ -156,11 +192,16 @@ async def execute_async(
     dataset_path: Path, runs_path: Path, output: Path,
     *, preview_lead_prose: bool = False,
     preview_lead_budget: bool = False,
+    preview_reference_floor: bool = False,
 ) -> None:
-    if type(preview_lead_prose) is not bool or type(preview_lead_budget) is not bool:
+    if any(type(flag) is not bool for flag in (
+        preview_lead_prose, preview_lead_budget, preview_reference_floor
+    )):
         raise BenchmarkInputError("preview flags must be booleans")
     if preview_lead_budget and not preview_lead_prose:
         raise BenchmarkInputError("lead budget preflight requires lead prose preview")
+    if preview_reference_floor and not preview_lead_budget:
+        raise BenchmarkInputError("reference floor requires lead budget preflight")
     if output.exists():
         raise BenchmarkInputError("output already exists; choose a new versioned name")
     dataset = read_json(dataset_path)
@@ -231,16 +272,23 @@ async def execute_async(
             planned, planned_tokens = await asyncio.to_thread(
                 lead_prose_budget_preflight, prose, provider.count_input_tokens, budget
             )
-        audits.append(audit_case(
+        audit = audit_case(
             case, summary, chunks, service._evidence_lines, excluded,
             lead_prose=prose,
             budgeted_lead=planned, budgeted_token_count=planned_tokens,
             final_budget=budget,
-        ))
+        )
+        if preview_reference_floor:
+            audit["reference_budget_floor"] = await asyncio.to_thread(
+                reference_quote_budget_floor,
+                case["facts"], provider.count_input_tokens, budget,
+            )
+        audits.append(audit)
     write_json(output, {
         "stage": "stage10_offline_selector_audit",
         "preview_lead_prose": preview_lead_prose,
         "preview_lead_budget": preview_lead_budget,
+        "preview_reference_floor": preview_reference_floor,
         "dataset_sha256": digest,
         "runs_sha256": runs_hash(run),
         "inference_calls": 0,
@@ -253,7 +301,9 @@ async def execute_async(
             "were present in real Map outputs. The optional lead budget preflight "
             "only models source-quote selection and exact final token fit; it "
             "does not prove model output, semantic fidelity, coverage, or safety. "
-            "No raw source or generated text is exported."
+            "The optional reference quote floor uses incomplete, benchmark-only "
+            "source spans as a token feasibility lower bound and must NEVER "
+            "drive runtime selection. No raw source or generated text is exported."
         ),
     })
 
@@ -271,12 +321,17 @@ def main(argv: list[str] | None = None) -> int:
         "--preview-lead-budget", action="store_true",
         help="Estimate 80-token final-tier lead evidence using the real tokenizer",
     )
+    parser.add_argument(
+        "--preview-reference-floor", action="store_true",
+        help="Dev-only token feasibility lower bound for pinned source quotes; no model calls",
+    )
     args = parser.parse_args(argv)
     try:
         asyncio.run(execute_async(
             args.dataset, args.runs, args.output,
             preview_lead_prose=args.preview_lead_prose,
             preview_lead_budget=args.preview_lead_budget,
+            preview_reference_floor=args.preview_reference_floor,
         ))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         parser.exit(2, f"Stage 10 selector audit failed: {type(exc).__name__}: {exc}\n")

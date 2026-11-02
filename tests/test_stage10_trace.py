@@ -132,3 +132,160 @@ def test_cli_trace_wiring_uses_same_di_provider_and_restores_method(monkeypatch,
     assert "سازمان هواشناسی" not in raw
     assert "گزارش کوتاه" not in raw
     assert provider.summarize_async == original_method
+
+
+def test_trace_augmented_map_evidence_is_visible_before_reduce():
+    from benchmarks.stage10_trace import MapEvidenceRecorder
+
+    fact = "باید از سند اصلی حفظ شود."
+    rec = CallRecorder(fact, [{"id": "critical_rule", "source_quote": fact}])
+    evidence = MapEvidenceRecorder(
+        [{"id": "critical_rule", "source_quote": fact}], rec.calls,
+        lambda _: [fact],
+    )
+
+    async def augment(source, generated):
+        assert source == fact
+        return generated + "\n" + source
+
+    async def reduce(input_text, *, max_output_tokens=None):
+        assert fact in input_text
+        return "خلاصه بدون قاعده"
+
+    async def workflow():
+        first = await evidence.wrap(augment)(fact, "خلاصه عمومی")
+        return await rec.wrap(reduce)(first, max_output_tokens=80)
+
+    assert run(workflow()) == "خلاصه بدون قاعده"
+    event = evidence.events[0]
+    assert event["selected_exact_fact_ids"] == ["critical_rule"]
+    assert event["before_exact_fact_ids"] == []
+    assert event["after_exact_fact_ids"] == ["critical_rule"]
+    assert event["appended_source_lines"] == 1
+    assert rec.calls[0]["input_contains_exact_fact_quotes"] == ["critical_rule"]
+    assert rec.calls[0]["output_contains_exact_fact_quotes"] == []
+    assert fact not in str(event)
+
+
+def test_trace_map_augmentation_errors_do_not_leak_source_text():
+    from benchmarks.stage10_trace import MapEvidenceRecorder
+
+    quote = "موضوع محرمانه سند"
+    rec = MapEvidenceRecorder(
+        [{"id": "rule", "source_quote": quote}], [],
+        lambda _: [quote],
+    )
+
+    async def broken(_source, _summary):
+        raise RuntimeError(quote)
+
+    with pytest.raises(RuntimeError, match=quote):
+        run(rec.wrap(broken)(quote, "خلاصه"))
+    assert rec.events[0]["error_code"] == "RuntimeError"
+    assert quote not in str(rec.events)
+    rec.MAX_EVENTS = 1
+    with pytest.raises(BenchmarkInputError, match="event budget"):
+        run(rec.wrap(broken)(quote, "خلاصه"))
+
+
+def test_trace_dev_map_ablation_records_exact_evidence_and_restores_di(monkeypatch, tmp_path):
+    import json
+    import sys
+    from types import ModuleType
+    from benchmarks.stage10_trace import execute_async
+
+    data = read_json(DATASET)
+    case = next(c for c in data["cases"] if c["id"] == "weather_short")
+    quote = case["facts"][0]["source_quote"]
+    provider_module = ModuleType("src.infrastructure.ml.mt5_model_provider")
+    service_module = ModuleType("src.core.services.summarization.long_text_summarization_service")
+    injector = ModuleType("src.infrastructure.di.inject")
+    bootstrap = ModuleType("src.infrastructure.di.bootstrap")
+    config_module = ModuleType("src.infrastructure.utils.config_reader")
+
+    class FakeProvider:
+        async def summarize_async(self, value, *, max_output_tokens=None):
+            return "خلاصه عمومی"
+
+    provider = FakeProvider()
+    original_provider_method = provider.summarize_async
+
+    class FakeChunker:
+        def normalize(self, text):
+            return text.strip()
+
+    class FakeService:
+        _provider = provider
+        _chunker = FakeChunker()
+
+        @staticmethod
+        def _evidence_lines(source):
+            return [quote] if quote in source else []
+
+        async def _augment_map_async(self, source, text):
+            return text + "\n" + quote
+
+        async def summarize_async(self, source, length, *, preserve_map_evidence=False):
+            first = await self._provider.summarize_async(source, max_output_tokens=120)
+            if preserve_map_evidence:
+                first = await self._augment_map_async(source, first)
+            return await self._provider.summarize_async(first, max_output_tokens=80)
+
+    service = FakeService()
+    original_map_method = service._augment_map_async
+    provider_module.Mt5ModelProvider = FakeProvider
+    service_module.LongTextSummarizationService = FakeService
+    injector.resolve = lambda cls: provider if cls is FakeProvider else service
+    bootstrap.bootstrap_di = lambda: None
+
+    class FakeConfig:
+        def get(self, name):
+            assert name == "model"
+            return {"revision": "a" * 40, "no_repeat_ngram_size": 3}
+
+    config_module.ConfigReader = FakeConfig
+    for name, module in (
+        ("src.infrastructure.ml.mt5_model_provider", provider_module),
+        ("src.core.services.summarization.long_text_summarization_service", service_module),
+        ("src.infrastructure.di.inject", injector),
+        ("src.infrastructure.di.bootstrap", bootstrap),
+        ("src.infrastructure.utils.config_reader", config_module),
+    ):
+        monkeypatch.setitem(sys.modules, name, module)
+
+    output = tmp_path / "local-trace.json"
+    run(execute_async(DATASET, "weather_short", "medium", output, preserve_map_evidence=True))
+    report = read_json(output)
+    assert report["successful"] is True
+    assert report["pipeline_settings"] == {"preserve_map_evidence": True}
+    assert len(report["calls"]) == 2
+    assert len(report["map_evidence_augmentations"]) == 1
+    event = report["map_evidence_augmentations"][0]
+    assert event["preceding_model_call"] == 1
+    assert event["after_exact_fact_ids"] == [case["facts"][0]["id"]]
+    assert event["appended_source_lines"] == 1
+    assert report["calls"][1]["input_contains_exact_fact_quotes"] == [case["facts"][0]["id"]]
+    assert report["calls"][1]["output_contains_exact_fact_quotes"] == []
+    raw = output.read_text(encoding="utf-8")
+    assert quote not in raw
+    assert "خلاصه عمومی" not in raw
+    assert provider.summarize_async == original_provider_method
+    assert service._augment_map_async == original_map_method
+
+
+def test_map_trace_requires_a_boolean_and_protects_existing_file(tmp_path):
+    from benchmarks.stage10_trace import execute_async
+
+    with pytest.raises(BenchmarkInputError, match="boolean"):
+        run(execute_async(
+            DATASET, "weather_short", "medium", tmp_path / "none.json",
+            preserve_map_evidence=1,
+        ))
+    output = tmp_path / "existing.json"
+    output.write_text("{}", encoding="utf-8")
+    with pytest.raises(BenchmarkInputError, match="already exists"):
+        run(execute_async(
+            DATASET, "weather_short", "medium", output,
+            preserve_map_evidence=True,
+        ))
+    assert output.read_text(encoding="utf-8") == "{}"

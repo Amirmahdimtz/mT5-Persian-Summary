@@ -138,11 +138,16 @@ def test_model_execution_wiring_with_fake_backend(monkeypatch, tmp_path):
     model_module.Mt5ModelProvider = FakeProvider
     service_module = ModuleType("src.core.services.summarization.long_text_summarization_service")
     class FakeService:
-        async def summarize_async(self, text, summary_length):
+        def __init__(self):
+            self.map_trial_flags = []
+
+        async def summarize_async(self, text, summary_length, *, preserve_map_evidence=False):
+            self.map_trial_flags.append(preserve_map_evidence)
             return f"خلاصه {summary_length}"
     service_module.LongTextSummarizationService = FakeService
+    fake_service = FakeService()
     inject_module = ModuleType("src.infrastructure.di.inject")
-    inject_module.resolve = lambda cls: FakeProvider() if cls is FakeProvider else FakeService()
+    inject_module.resolve = lambda cls: FakeProvider() if cls is FakeProvider else fake_service
     bootstrap_module = ModuleType("src.infrastructure.di.bootstrap")
     bootstrap_module.bootstrap_di = lambda: None
     config_module = ModuleType("src.infrastructure.utils.config_reader")
@@ -166,7 +171,17 @@ def test_model_execution_wiring_with_fake_backend(monkeypatch, tmp_path):
     assert all(x["summary"] == "خلاصه medium" for x in result["results"])
     assert all(x["output_tokens_including_specials"] == 3 for x in result["results"])
     assert result["model_settings"] == {"id": "test-only"}
+    assert result["pipeline_settings"] == {"preserve_map_evidence": False}
     assert result["dataset_sha256"] == dataset_hash(DATASET)
+
+    trial_file = tmp_path / "map_evidence_trial.json"
+    asyncio.run(execute_async(
+        DATASET, trial_file, ["medium"], "dev", preserve_map_evidence=True
+    ))
+    trial = read_json(trial_file)
+    assert trial["pipeline_settings"] == {"preserve_map_evidence": True}
+    assert len(trial["results"]) == 5
+    assert fake_service.map_trial_flags == [False] * 5 + [True] * 5
 
 
 def test_repetition_diagnostics_distinguish_repeated_word_sequences():

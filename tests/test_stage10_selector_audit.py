@@ -177,3 +177,75 @@ def test_rejects_missing_optin_and_wrong_revision(monkeypatch, tmp_path):
     with pytest.raises(Invalid, match="checkpoint"):
         asyncio.run(mod.execute_async(Path("dataset"), Path("runs"), tmp_path / "audit.json"))
     assert provider.calls == 0
+
+
+def test_preview_lead_prose_recovers_intro_facts_without_model_generation(monkeypatch):
+    mod, run, case, provider, written, _ = setup_audit(monkeypatch)
+    source = (
+        "# راهنمای قابلیت‌ها\n"
+        "> **Development approach:** هشت مرحله متوالی، قابل بررسی\n"
+        "## 1. هدف\n"
+        "کاربر بتواند متن مستقیم یا فایل‌های TXT، PDF و DOCX را ارسال کند. "
+        "چند فایل در یک درخواست نیز پشتیبانی می‌شوند.\n"
+        "- این سطر باید در لیست فعلی بماند.\n"
+        "## 2. خارج از محدوده\n"
+        "- OCR تصاویر در Backlog است.\n"
+    )
+    candidates = mod.lead_prose_candidates(source)
+    assert any("هشت مرحله متوالی" in x for x in candidates)
+    assert any("TXT، PDF و DOCX" in x for x in candidates)
+    assert any("چند فایل در یک درخواست" in x for x in candidates)
+    assert all("OCR" not in x for x in candidates)
+    assert all("این سطر" not in x for x in candidates)
+    assert provider.calls == 0
+    report = mod.audit_case(
+        {"id": "test-case", "text": source, "facts": [
+            {"id": "multi_file", "source_quote": "چند فایل در یک درخواست نیز پشتیبانی می‌شوند"},
+        ]},
+        "", [source], lambda _: [], set(), lead_prose=candidates,
+    )
+    assert report["facts"][0]["found_in_selected_clauses"] is False
+    assert report["facts"][0]["found_in_lead_prose_preview"] is True
+    assert report["lead_prose_candidate_count"] == len(candidates)
+
+
+def test_real_mvp_pinned_facts_are_in_lead_prose_preview(monkeypatch):
+    mod, *_ = setup_audit(monkeypatch)
+    root = Path(__file__).resolve().parents[1]
+    text = (root / "IMPLEMENTATION_PLAN.md").read_text(encoding="utf-8")
+    manifest = json.loads(
+        (root / "benchmarks/fixtures/real_project_documents_v1.json").read_text(encoding="utf-8")
+    )
+    case = next(x for x in manifest["cases"] if x["id"] == "real_mvp_plan")
+    candidates = mod.lead_prose_candidates(text)
+    assert len(candidates) < 32
+    assert {f["id"] for f in case["facts"] if any(f["source_quote"] in s for s in candidates)} == {
+        "file_formats", "multi_file", "eight_stages",
+    }
+    assert not any("OCR برای PDFهای اسکن‌شده" in c for c in candidates)
+
+
+def test_preview_integrated_is_metadata_only_and_opt_in(monkeypatch, tmp_path):
+    mod, run, case, provider, written, _ = setup_audit(monkeypatch)
+    case["text"] = "## 1. هدف\nاین قانون باید اجرا شود.\n## 2. خارج از محدوده\n- ویژگی آینده باید فعال شود."
+    asyncio.run(mod.execute_async(
+        Path("dataset"), Path("runs"), tmp_path / "report.json",
+        preview_lead_prose=True,
+    ))
+    assert written["inference_calls"] == 0
+    assert written["preview_lead_prose"] is True
+    assert written["results"][0]["lead_prose_candidate_count"] == 1
+    assert written["results"][0]["facts"][0]["found_in_lead_prose_preview"] is True
+    assert "این قانون" not in json.dumps(written, ensure_ascii=False)
+    assert provider.calls == 0
+
+
+def test_preview_flag_rejects_non_boolean(monkeypatch, tmp_path):
+    mod, run, case, provider, written, Invalid = setup_audit(monkeypatch)
+    with pytest.raises(Invalid, match="boolean"):
+        asyncio.run(mod.execute_async(
+            Path("dataset"), Path("runs"), tmp_path / "report.json",
+            preview_lead_prose="yes",
+        ))
+    assert not written
+    assert provider.calls == 0

@@ -258,3 +258,45 @@ The comparison records `candidate_preserve_map_evidence: true`, while the existi
 `write_json` uses exclusive creation: if any output file already exists, choose a **new versioned name**, not overwrite a prior model run. Existing `.gitignore` excludes the `/local_stage10_*.json` files because they may contain original or generated document text.
 
 **Verification status at time of the code commit:** the helper was source-inspected and its generic clause selector smoke-checked against the original architecture input. The **new full Windows regression and pinned model Candidate v2 run have not yet been performed**. Stage 10 **In Progress**, production rollout **NO-GO** pending semantic and resource review.
+
+
+## 9. Candidate v2 Windows results — source-anchored Map excerpts did not improve factual coverage (2026-11-02)
+
+The user checked out the v2 commit `4ea72bd1bb3fbd467f0214afd92416ab1c314c3d`, then ran a successful local Windows regression:
+- `pip check`: no broken requirements;
+- `compileall -q src benchmarks tests`: no errors;
+- targeted `test_stage10_map_evidence.py`, `test_long_text_summarization_service.py`, `test_quality_benchmark.py`, `test_stage10_compare.py`: **64 passed**;
+- full `pytest -q`: **336 passed, 2 nonblocking deprecation warnings** (19.57s).
+- Real CPU model `run --split dev --lengths medium --preserve-map-evidence`: succeeded on both authentic project-doc **development** cases and recorded `pipeline_settings.preserve_map_evidence: true`. Pinned dataset SHA `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c`; identical checkpoint revision and decoder settings to candidate v1.
+- `benchmarks.stage10_compare` result: **paired=2, changed=1, semantic quality NOT REVIEWED**, with one case byte-identical.
+
+| Development case | Candidate v1 | Candidate v2 (Map anchors enabled) | Decision |
+| --- | --- | --- | --- |
+| `real_architecture_guide` | 65-character generic ChatGPT-purpose sentence | **Same exact 65-character sentence**, 24 tokens | No gain; none of 3 mandatory rules retained in final answer |
+| `real_mvp_plan` | 122-character general-purpose summary plus vague repository-execution claim | 61-character general-purpose summary only, 23 tokens | Removes the vague claim, but still omits file formats, multi-file support and eight stages |
+
+The **assistant's source-grounded initial review** finds **0/6 required facts covered, 6/6 omitted, 0 distorted** in the v2 final outputs; this is **not an independent human annotation**. No new ungrounded claims were identified among the two short generic sentences, but this also does **not** demonstrate improvement because all essential facts remain absent. The 146.149s architecture and 60.672s MVP-plan candidate elapsed times are noncontrolled single CPU runs: **do not infer a performance improvement or regression** from them. Holdouts were not run.
+
+**Decision: Candidate v2 NO-GO for quality adoption; Stage 10 remains In Progress.** It did not meet the previously frozen authentic-doc development gate **≥3/6 facts covered**. Do not reclassify the original facts, alter the development baseline or enable this ablation in production. The result alone does **not** say whether original-source excerpts were never selected, failed the 120-token cap, were included in first Map and then discarded by Reduce, or occurred in different chunks.
+
+### Inference-free first-Map evidence replay
+
+To isolate the **selection / tokenizer-cap** question without burning 11 more CPU inference calls, the new **`benchmarks.stage10_map_replay`** command replays the actual `_evidence_lines` and `_augment_map_async` logic using the first-Map generated output already recorded in `local_stage10_first_map_architecture_v1.json`. It validates the pinned development dataset SHA, first chunk length and count, model revision, decoder n-gram setting, and max output budget. It uses a real tokenizer count but **never calls `summarize_async` or `generate`**.
+
+The output contains only counts, fact IDs matched lexically, output token counts and a `NOT_REVIEWED` semantic status. It does not persist the original document chunk, generated first-Map text or appended source sentences. Holdout cases are refused. The result simulates candidate v2's *first Map augmentation* on an existing v1 generated Map sentence; it **does not prove** what actual candidate v2 generated or how the final Reduce behaved.
+
+PowerShell after pulling the GitHub change:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m compileall -q benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_map_replay.py
+.\.venv\Scripts\python.exe -m pytest -q
+
+.\.venv\Scripts\python.exe -m benchmarks.stage10_map_replay --dataset local_quality_project_v1.json --first-map local_stage10_first_map_architecture_v1.json --output local_stage10_map_replay_architecture_v1.json
+```
+
+The replay report's **`appended_source_lines`** and **`fact_ids_in_replayed_map_output`** indicate whether the selected source-grounded evidence fits alongside the original 65-character Map output. If it does, but the already observed v2 final remains generic, a subsequent controlled Reduce-stage investigation is warranted; if not, refine the selection/cap policy **without** hardcoding test-specific facts. Re-running CPU inference is not needed for this immediate diagnostic.
+
+The assistant ran **5 deterministic replay tests** using a mocked tokenizer/service (no model weights or network) and verified Python compilation. The **full Windows suite after adding this replay tool has not yet been run**. This is an internal diagnostic experiment, not a production quality certificate.

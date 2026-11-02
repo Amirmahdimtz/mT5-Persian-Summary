@@ -48,7 +48,7 @@ class LongTextSummarizationService:
     _FIRST_SENTENCE = re.compile(r"(?<=[.!?؟؛])[ \t]+")
     # Generic Persian obligation/decision signals, not benchmark fact IDs.
     _SALIENT = re.compile(r"باید|نباید|الزام|ممنوع|ضروری|موظف|نساز|نکن|تصمیم")
-    _DETAIL = re.compile(r"[@`\d۰-۹]")
+    _DETAIL = re.compile(r"[@`/\d۰-۹A-Z]")
 
     def __init__(
         self, text_chunking_service: TextChunkingService, model_provider: Mt5ModelProvider

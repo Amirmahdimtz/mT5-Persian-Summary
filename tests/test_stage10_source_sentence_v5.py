@@ -9,7 +9,9 @@ from benchmarks.quality_benchmark import BenchmarkInputError, DATASET, execute_a
 from src.core.services.summarization.long_text_summarization_service import (
     LongTextSummarizationService, SummarizationInputError, SummarizationNoProgressError,
 )
-from src.core.services.summarization.text_chunking_service import TextChunkingService
+from src.core.services.summarization.text_chunking_service import (
+    ChunkingLimitError, TextChunkingService,
+)
 
 
 class FakeProvider:
@@ -218,3 +220,14 @@ def test_v5_preserves_original_negation_across_pdf_wrapped_lines():
     assert "شاید به تغییر فصل" in sentences[0]
     assert "نباید به عبارت «نشتی تأیید شد» تبدیل شود؛" in sentences[1]
     assert not any(sentence.startswith("«نشتی تأیید شد»") for sentence in sentences)
+
+
+def test_v5_raw_source_work_budget_cannot_be_bypassed_by_normalization():
+    svc, provider = service()
+    # Whitespace normalization reduces this huge raw document to one sentence.
+    source = "\n" * (svc._chunker.MAX_TEXT_CHARACTERS + 1) + (
+        "در بخش دوم زمان رسیدگی به خرابی‌ها کاهش یافته است."
+    )
+    with pytest.raises(ChunkingLimitError, match="input exceeds chunking character budget"):
+        run(svc.summarize_async(source, "long", **FLAGS))
+    assert provider.calls == []

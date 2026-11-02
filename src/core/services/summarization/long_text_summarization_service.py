@@ -482,8 +482,13 @@ class LongTextSummarizationService:
         first_level_source_evidence: list[str] = []
         original_source = current
         if source_sentence_final:
+            # The normalizer collapses 3+ newlines, losing PDF paragraph
+            # boundaries that distinguish standalone headings from prose.
+            # Keep original layout for this opt-in extractor, but cap raw work.
+            if len(text) > self._chunker.MAX_TEXT_CHARACTERS:
+                raise ChunkingLimitError("input exceeds chunking character budget")
             extractive = await self._source_sentence_final_async(
-                original_source, summary_length, desired_budget
+                text, summary_length, desired_budget
             )
             if extractive is None:
                 raise SummarizationNoProgressError(

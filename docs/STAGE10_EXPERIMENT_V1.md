@@ -601,3 +601,43 @@ $env:env_type = 'development'
 ```
 
 **Verification:** three new reference-proxy tests added, not yet rerun in full Windows environment. Last verified Windows full suite was **373 passed** on prior head. The source comparison and helper have no model calls; no new real CPU candidate or holdout run has been authorized/needed. Stage 10 stays **In Progress**, v3.2 remains an unapproved Development candidate. No changes to model checkpoint, decoder, default API behavior or synthetic gate thresholds.
+
+## 18. v3.2 genuine reference-span tokenizer audit and opt-in Candidate v4 (2026-11-02)
+
+### Results and scope
+
+The user pulled `cc1db2db43b84061fee17b3109f7b5fedb06d560`, compiled sources successfully, ran **16 targeted tests passed** and **376 full-suite tests passed with 2 nonblocking deprecation warnings** (19.64s). The real tokenizer-only `--preview-reference-floor` completed on immutable Development cases, with **zero model inference calls**.
+
+| Development case | Three fixed source-quote spans combined | Budget | Budgeted lead preflight |
+| --- | ---: | ---: | --- |
+| Architecture | **52** encoded tokens | 80 | No lead clauses selected; all 3 necessary rules already in selected bullets and final v3.2 output |
+| MVP implementation plan | **45** encoded tokens | 80 | 2 intro sentences consume **76** tokens, only **1 of 3** reference spans verbatim |
+
+These source_quote spans are **benchmark labels and may be fragments**, not valid complete summary sentences or a hard theoretical lower bound for semantic summarization. Nothing from the manifest is fed to the model, Runtime ranker or output construction. The contrast suggests the current lead ranker spends final token budget on generic-purpose framing rather than diverse factual source claims; an improved selector may help but is not proven to do so.
+
+### Candidate v4: guarded, optional lead-prose final ablation
+
+A new third experimental per-call flag `balanced_source_final=True` is accepted by `LongTextSummarizationService.summarize_async` **only when both `preserve_map_evidence` and `source_grounded_final` are True**. These three flags remain **False by default** and are absent from the REST API. The fixed checkpoint, generation settings, model calls and normal Map/Reduce workflow remain unchanged.
+
+After the usual final Reduce inference succeeds and its output passes token validation, this **opt-in** branch considers source-verbatim sentences from the Markdown preface and first major section only. It skips code fences, list/table rows, and nested negative-scope/future-work headings. Candidates receive **general** capability/quantity/technical-marker scores; rank uses score per actual tokenizer token instead of consuming the budget on one long generic paragraph. At most three **complete** sentences are combined in original order, re-encoded as a group after every addition, and must fit the **unchanged length-tier output budget** and max character limit. If no source prose candidate qualifies, the existing v3.2 first-level Map bullet fallback is used. The reference-summary, `facts`, expected labels and run outputs are **not** used for selection.
+
+This is a deliberately **source-only extractive** trial, not an improved abstractive mT5 checkpoint or a production policy. Unlike a semantic parser, the lexical heading heuristic may misread negation in ordinary prose, lose context or overvalue technical references. It may also replace useful architecture rules if a different architecture document includes eligible prose; this must be tested on more than these two Development cases. Because the fallback uses the original introduction rather than inferred Map text, this is a new final-evidence policy variable relative to v3.2. No holdouts are accessible through the trial CLI.
+
+### Windows verification and controlled paired experiment
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_balanced_final.py tests/test_stage10_final_evidence.py tests/test_quality_benchmark.py tests/test_stage10_compare.py tests/test_long_text_summarization_service.py
+.\.venv\Scripts\python.exe -m pytest -q
+
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json run --split dev --lengths medium --preserve-map-evidence --source-grounded-final --balanced-source-final --output local_stage10_project_dev_candidate_v4.json
+.\.venv\Scripts\python.exe -m benchmarks.stage10_compare --dataset local_quality_project_v1.json --baseline local_stage10_project_dev_candidate_v3_2.json --candidate local_stage10_project_dev_candidate_v4.json --output local_stage10_project_dev_compare_v3_2_v4.json
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json review-template --runs local_stage10_project_dev_candidate_v4.json --output local_stage10_project_dev_review_v4.json
+```
+
+Review the two raw summaries **against the original source and frozen atomic facts**; specifically check retention of architecture 3/3, presence of TXT/PDF/DOCX, multi-file request and eight stages (do not score a composite file-format fact as complete if PDF is missing), section/polarity/temporal context, repetition, output coherence, and overfitting to the two known development documents. The comparator confirms paired generation/provenance and output changes only; it is **NOT** semantic review. Do not overwrite existing files or commit raw project texts.
+
+**Verification status:** 376 passing Windows tests belong to the earlier reference-token diagnostic, **not this new v4 code**. New v4 code, benchmark/comparator wiring and mock-only regression tests are committed; full Windows and CPU model v4 run are **NOT YET PERFORMED**. Holdout and frozen synthetic gates remain untouched. **Stage 10 In Progress; Candidate v3.2 NO-GO for rollout and Candidate v4 NOT EVALUATED.**

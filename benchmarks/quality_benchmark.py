@@ -288,10 +288,14 @@ async def execute_async(
         for length in lengths:
             start = time.perf_counter()
             try:
-                if preserve_map_evidence:
+                if source_grounded_final:
+                    summary = await service.summarize_async(
+                        case["text"], length,
+                        preserve_map_evidence=True, source_grounded_final=True,
+                    )
+                elif preserve_map_evidence:
                     summary = await service.summarize_async(
                         case["text"], length, preserve_map_evidence=True,
-                        source_grounded_final=source_grounded_final,
                     )
                 else:
                     summary = await service.summarize_async(case["text"], length)

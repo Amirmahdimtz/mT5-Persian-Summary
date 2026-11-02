@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 from src.core.services.summarization.text_chunking_service import (
     ChunkingInputError,
@@ -42,6 +43,12 @@ class LongTextSummarizationService:
     MAX_HIERARCHY_LEVELS = 6
     MAX_MODEL_CALLS = 128
     _LENGTH_FRACTIONS = {"short": (1, 3), "medium": (2, 3), "long": (3, 3)}
+    _MAP_EVIDENCE_LINES = 3
+    _BULLET = re.compile(r"^[-*•][ \\t]+(.+)$")
+    _FIRST_SENTENCE = re.compile(r"(?<=[.!?؟؛])[ \\t]+")
+    # Generic Persian obligation/decision signals, not benchmark fact IDs.
+    _SALIENT = re.compile(r"باید|نباید|الزام|ممنوع|ضروری|موظف|نساز|نکن|تصمیم")
+    _DETAIL = re.compile(r"[@`\\d۰-۹]")
 
     def __init__(
         self, text_chunking_service: TextChunkingService, model_provider: Mt5ModelProvider
@@ -55,8 +62,55 @@ class LongTextSummarizationService:
         numerator, denominator = self._LENGTH_FRACTIONS[summary_length]
         return (self._provider.max_output_tokens * numerator + denominator - 1) // denominator
 
-    async def summarize_async(self, text: str, summary_length: str = "medium") -> str:
+    @classmethod
+    def _evidence_lines(cls, chunk: str) -> list[str]:
+        """Rank source-grounded bullet sentences without generating new facts.
+
+        This is an opt-in Stage 10 experiment, not a claim that lexical
+        salience approximates semantic importance for arbitrary documents.
+        """
+        ranked: list[tuple[int, int, str]] = []
+        fenced = False
+        for index, raw in enumerate(chunk.splitlines()):
+            line = raw.strip()
+            if line.startswith("```"):
+                fenced = not fenced
+                continue
+            if fenced:
+                continue
+            match = cls._BULLET.match(line)
+            if match is None:
+                continue
+            sentence = cls._FIRST_SENTENCE.split(match.group(1), maxsplit=1)[0].strip()
+            if not sentence or len(sentence) > 250:
+                continue
+            weight = 2 * bool(cls._SALIENT.search(sentence)) + bool(cls._DETAIL.search(sentence))
+            if weight:
+                ranked.append((-weight, index, sentence))
+        return [item[2] for item in sorted(ranked)[:cls._MAP_EVIDENCE_LINES]]
+
+    async def _augment_map_async(self, source: str, summary: str) -> str:
+        """Retain only exact source excerpts if the intermediate cap permits."""
+        current = summary
+        for sentence in self._evidence_lines(source):
+            if sentence in current:
+                continue
+            candidate = current + "\\n" + sentence
+            if len(candidate) > self._provider.max_input_characters:
+                continue
+            if await asyncio.to_thread(
+                self._output_fits, candidate, self._provider.max_output_tokens
+            ):
+                current = candidate
+        return current
+
+    async def summarize_async(
+        self, text: str, summary_length: str = "medium",
+        *, preserve_map_evidence: bool = False
+    ) -> str:
         desired_budget = self.output_token_budget(summary_length)
+        if type(preserve_map_evidence) is not bool:
+            raise SummarizationInputError("preserve_map_evidence must be a boolean")
         try:
             current = self._chunker.normalize(text)
         except ChunkingInputError as error:
@@ -99,7 +153,10 @@ class LongTextSummarizationService:
             for chunk in chunks:
                 # Intermediate summaries get full configured output budget;
                 # the requested final length applies only to the final pass.
-                parts.append(await infer(chunk, self._provider.max_output_tokens))
+                part = await infer(chunk, self._provider.max_output_tokens)
+                if preserve_map_evidence:
+                    part = await self._augment_map_async(chunk, part)
+                parts.append(part)
             merged = "\n\n".join(parts)
             # A very small reduction cannot converge within bounded depth.
             if len(merged) * 100 >= len(current) * 95:

@@ -125,3 +125,30 @@ def test_final_source_trial_metadata_records_one_changed_pipeline_variable():
     }
     with pytest.raises(BenchmarkInputError, match="requires"):
         compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
+
+
+def test_v4_comparison_tracks_only_new_balanced_trial_flag():
+    dataset, baseline, candidate = pair()
+    baseline["pipeline_settings"] = {
+        "preserve_map_evidence": True,
+        "source_grounded_final": True,
+    }
+    candidate["pipeline_settings"] = {
+        "preserve_map_evidence": True,
+        "source_grounded_final": True,
+        "balanced_source_final": True,
+    }
+    report = compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
+    assert report["baseline_balanced_source_final"] is None
+    assert report["candidate_balanced_source_final"] is True
+    assert report["candidate_source_grounded_final"] is True
+    candidate["pipeline_settings"]["balanced_source_final"] = "true"
+    with pytest.raises(BenchmarkInputError, match="boolean"):
+        compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
+    candidate["pipeline_settings"] = {
+        "preserve_map_evidence": True,
+        "source_grounded_final": False,
+        "balanced_source_final": True,
+    }
+    with pytest.raises(BenchmarkInputError, match="requires"):
+        compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)

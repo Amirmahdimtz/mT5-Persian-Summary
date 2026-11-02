@@ -1,0 +1,165 @@
+"""Stage 10 v5 extractive trial: fake tokenizer/model, no network or weights."""
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from benchmarks.quality_benchmark import BenchmarkInputError, DATASET, execute_async
+from src.core.services.summarization.long_text_summarization_service import (
+    LongTextSummarizationService, SummarizationInputError, SummarizationNoProgressError,
+)
+from src.core.services.summarization.text_chunking_service import TextChunkingService
+
+
+class FakeProvider:
+    max_input_tokens = 25
+    max_input_characters = 2000
+    max_output_tokens = 48
+
+    def __init__(self):
+        self.calls = []
+
+    def count_input_tokens(self, text: str) -> int:
+        return len(text.split()) + 1
+
+    async def summarize_async(self, value: str, *, max_output_tokens=None) -> str:
+        self.calls.append((value, max_output_tokens))
+        return "generated model claim"
+
+
+def service(provider=None):
+    provider = provider or FakeProvider()
+    return LongTextSummarizationService(TextChunkingService(provider), provider), provider
+
+
+def run(coro):
+    return asyncio.run(coro)
+
+
+FLAGS = {
+    "preserve_map_evidence": True,
+    "source_grounded_final": True,
+    "balanced_source_final": True,
+    "source_sentence_final": True,
+}
+
+
+def test_v5_preserves_full_source_direction_and_numbers_without_model_inference():
+    svc, provider = service()
+    text = (
+        "هزینه نگهداری شبکه از ۸۰ به ۶۵ میلیون تومان کاهش یافته است. "
+        "در مقابل هزینه پشتیبانی نرم‌افزار از ۳۰ به ۳۶ میلیون تومان افزایش یافته است. "
+        "قرارداد پشتیبانی در پایان آذر بازنگری می‌شود."
+    )
+    result = run(svc.summarize_async(text, "medium", **FLAGS))
+    assert "کاهش یافته است." in result
+    assert "افزایش یافته است." in result
+    assert "از ۳۰ به ۳۶" in result
+    assert all(line in text for line in result.splitlines())
+    assert provider.count_input_tokens(result) <= svc.output_token_budget("medium")
+    assert provider.calls == []
+
+
+def test_v5_short_medium_long_are_bounded_and_give_distinct_evidence():
+    svc, provider = service()
+    text = (
+        "برنامه جدید توسعه خدمات در شهر آغاز شد. "
+        "تعداد اتوبوس‌های برقی در شهر افزایش پیدا کرد. "
+        "هدف برنامه کاهش آلودگی هوا اعلام شد. "
+        "دو درمانگاه جدید برای شهروندان افتتاح شد. "
+        "مراکز جدید در محله‌های کم‌برخوردار فعال شدند. "
+        "دانشگاه‌ها تفاهم‌نامه همکاری پژوهشی امضا کردند."
+    )
+    results = {tier: run(svc.summarize_async(text, tier, **FLAGS))
+               for tier in ("short", "medium", "long")}
+    assert len({results["short"], results["long"]}) == 2
+    assert len(results["short"].splitlines()) == 1
+    assert len(results["medium"].splitlines()) >= 2
+    assert len(results["long"].splitlines()) >= len(results["medium"].splitlines())
+    for tier, output in results.items():
+        assert provider.count_input_tokens(output) <= svc.output_token_budget(tier)
+        assert all(line in text for line in output.splitlines())
+    assert provider.calls == []
+
+
+def test_v5_long_repeated_prose_deduplicates_without_inventing_facts():
+    svc, provider = service()
+    paragraph = (
+        "وزارت آموزش برنامه جدیدی معرفی کرد. "
+        "این برنامه شامل آموزش معلمان و ارتقای زیرساخت مدارس است. "
+        "اجرای برنامه مرحله‌ای است و مناطق کم‌برخوردار اولویت دارند. "
+    )
+    text = paragraph * 20
+    assert not svc._chunker.fits(text)
+    output = run(svc.summarize_async(text, "long", **FLAGS))
+    assert output.count("آموزش معلمان") <= 1
+    assert "مناطق کم‌برخوردار اولویت دارند" in output
+    assert all(line in text for line in output.splitlines())
+    assert provider.calls == []
+
+
+def test_v5_preserves_markdown_scope_and_does_not_extract_fenced_code():
+    svc, provider = service()
+    text = (
+        "## قابلیت‌های فعلی\n"
+        "- متن فارسی در برنامه پردازش می‌شود.\n"
+        "### موارد مجاز\n"
+        "- فایل‌های متنی نیز پشتیبانی می‌شوند.\n"
+        "## خارج از محدوده\n"
+        "- OCR برای تصاویر پشتیبانی می‌شود.\n"
+        "### توضیح بیشتر\n"
+        "در آینده سرویس دیگر پشتیبانی می‌شود.\n"
+        "## بخش‌های دیگر\n"
+        "```\nاین قابلیت محرمانه اجرا می‌شود.\n```\n"
+    )
+    sentences = svc._source_sentence_candidates(text)
+    joined = "\n".join(sentence for _, sentence in sentences)
+    assert "متن فارسی" in joined
+    assert "فایل‌های متنی" in joined
+    assert "OCR" not in joined
+    assert "در آینده" not in joined
+    assert "محرمانه" not in joined
+
+
+def test_v5_fails_closed_when_no_source_sentence_fits():
+    svc, provider = service()
+    text = "یک عبارت بدون نشانه پایان و بدون نقطه"
+    with pytest.raises(SummarizationNoProgressError, match="no complete source sentence"):
+        run(svc.summarize_async(text, "medium", **FLAGS))
+    assert provider.calls == []
+
+
+@pytest.mark.parametrize("options", [
+    {"source_sentence_final": True},
+    {"balanced_source_final": True, "source_sentence_final": True},
+    {"preserve_map_evidence": True, "source_grounded_final": True, "source_sentence_final": True},
+    {"preserve_map_evidence": True, "source_grounded_final": True,
+     "balanced_source_final": True, "source_sentence_final": 1},
+])
+def test_v5_invalid_optin_flags_fail_before_inference(options):
+    svc, provider = service()
+    with pytest.raises(SummarizationInputError):
+        run(svc.summarize_async("متن آزمایشی", "medium", **options))
+    assert provider.calls == []
+
+
+def test_v5_benchmark_only_allows_dev_and_requires_parent_flags(tmp_path):
+    output = tmp_path / "invalid.json"
+    with pytest.raises(BenchmarkInputError, match="requires balanced-source"):
+        run(execute_async(DATASET, output, ["medium"], "dev", source_sentence_final=True))
+    for split in ("holdout", "all"):
+        with pytest.raises(BenchmarkInputError, match="requires split=dev"):
+            run(execute_async(
+                DATASET, output, ["medium"], split, source_sentence_final=True,
+                preserve_map_evidence=True, source_grounded_final=True,
+                balanced_source_final=True,
+            ))
+    assert not output.exists()
+
+
+def test_v5_default_behavior_and_existing_v4_flags_unchanged():
+    svc, provider = service()
+    output = run(svc.summarize_async("این متن فارسی کوتاه است.", "medium"))
+    assert output == "generated model claim"
+    assert provider.calls

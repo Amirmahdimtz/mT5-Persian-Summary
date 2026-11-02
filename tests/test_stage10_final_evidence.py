@@ -112,3 +112,58 @@ def test_dev_only_cli_trial_rejects_holdout_and_unpaired_options(tmp_path):
                 preserve_map_evidence=True, source_grounded_final=True,
             ))
     assert not output.exists()
+
+
+def test_excluded_markdown_scope_is_not_extracted_as_a_positive_claim():
+    source = (
+        "## داخل محدوده\n"
+        "- خلاصه‌سازی فایل باید فعال شود.\n"
+        "### موارد مجاز\n"
+        "- بررسی عدد ۱۲۳ در درخواست ضروری است.\n"
+        "## خارج از محدوده نسخه اول\n"
+        "- پشتیبانی از `.doc`، فایل‌های Office دیگر یا تصویر.\n"
+        "### جزئیات خارج از محدوده\n"
+        "- نباید تصویر اسکن‌شده را جزو امکانات دانست.\n"
+        "## امکانات بعدی\n"
+        "- استفاده از @inject باید رعایت شود.\n"
+    )
+    lines = LongTextSummarizationService._evidence_lines(source)
+    assert "خلاصه‌سازی فایل باید فعال شود." in lines
+    assert "استفاده از @inject باید رعایت شود." in lines
+    assert all("Office" not in x and "اسکن‌شده" not in x for x in lines)
+    excluded = LongTextSummarizationService._excluded_original_clauses(source)
+    assert "پشتیبانی از `.doc`، فایل‌های Office دیگر یا تصویر." in excluded
+    assert "نباید تصویر اسکن‌شده را جزو امکانات دانست." in excluded
+    assert "استفاده از @inject باید رعایت شود." not in excluded
+
+
+def test_full_document_exclusion_context_survives_chunk_boundaries():
+    svc, _ = service()
+    invalid = "پشتیبانی از `.doc`، فایل‌های Office دیگر یا تصویر."
+    allowed = "این تصمیم باید رعایت شود."
+    source = (
+        f"## داخل محدوده\n- {allowed}\n\n"
+        + "متن تکمیلی فارسی برای جداسازی بخش‌ها. " * 3
+        + f"\n\n## خارج از محدوده نسخه اول\n- {invalid}\n\n"
+        + "متن غیرحساس برای عبور از مرز چانک. " * 3
+    )
+    # Source-level context is tracked independently of where token-aware
+    # chunk boundaries fall; a prohibition cannot become a positive claim.
+    assert invalid in svc._excluded_original_clauses(source)
+    result = run(svc.summarize_async(
+        source, "medium", preserve_map_evidence=True,
+        source_grounded_final=True,
+    ))
+    assert allowed in result
+    assert invalid not in result
+    assert "Office" not in result
+
+
+def test_english_out_of_scope_section_is_excluded_as_well():
+    text = (
+        "## Supported\n- API باید فعال شود.\n"
+        "## Out of scope\n- PDF scanning باید فعال شود.\n"
+    )
+    assert LongTextSummarizationService._evidence_lines(text) == [
+        "API باید فعال شود."
+    ]

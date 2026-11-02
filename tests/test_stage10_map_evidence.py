@@ -15,7 +15,7 @@ from src.core.services.summarization.text_chunking_service import TextChunkingSe
 
 
 class FakeProvider:
-    max_input_tokens = 52
+    max_input_tokens = 90
     max_input_characters = 100
     max_output_tokens = 42
 

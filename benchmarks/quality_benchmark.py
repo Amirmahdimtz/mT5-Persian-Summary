@@ -263,6 +263,7 @@ async def execute_async(
     dataset_path: Path, output_path: Path, lengths: list[str], split: str,
     *, preserve_map_evidence: bool = False, source_grounded_final: bool = False,
     balanced_source_final: bool = False,
+    source_sentence_final: bool = False,
 ) -> None:
     # Delayed imports: validate/score commands never import torch or download weights.
     from src.core.services.summarization.long_text_summarization_service import LongTextSummarizationService
@@ -272,15 +273,19 @@ async def execute_async(
     from src.infrastructure.utils.config_reader import ConfigReader
 
     if any(type(flag) is not bool for flag in (
-        preserve_map_evidence, source_grounded_final, balanced_source_final
+        preserve_map_evidence, source_grounded_final,
+        balanced_source_final, source_sentence_final
     )):
         raise BenchmarkInputError("trial flags must be booleans")
     if source_grounded_final and not preserve_map_evidence:
         raise BenchmarkInputError("source-grounded final requires map evidence trial")
     if balanced_source_final and not source_grounded_final:
         raise BenchmarkInputError("balanced-source final requires source-grounded final")
+    if source_sentence_final and not balanced_source_final:
+        raise BenchmarkInputError("source-sentence final requires balanced-source final")
     # No experimental candidate may evaluate the reserved holdout.
-    if (preserve_map_evidence or source_grounded_final or balanced_source_final) and split != "dev":
+    if (preserve_map_evidence or source_grounded_final or
+            balanced_source_final or source_sentence_final) and split != "dev":
         raise BenchmarkInputError("map evidence trial requires split=dev")
     dataset = read_json(dataset_path)
     selected = [c for c in validate_dataset(dataset) if split == "all" or c["split"] == split]
@@ -293,7 +298,13 @@ async def execute_async(
         for length in lengths:
             start = time.perf_counter()
             try:
-                if balanced_source_final:
+                if source_sentence_final:
+                    summary = await service.summarize_async(
+                        case["text"], length, preserve_map_evidence=True,
+                        source_grounded_final=True, balanced_source_final=True,
+                        source_sentence_final=True,
+                    )
+                elif balanced_source_final:
                     summary = await service.summarize_async(
                         case["text"], length, preserve_map_evidence=True,
                         source_grounded_final=True, balanced_source_final=True,
@@ -324,6 +335,7 @@ async def execute_async(
             "preserve_map_evidence": preserve_map_evidence,
             "source_grounded_final": source_grounded_final,
             "balanced_source_final": balanced_source_final,
+            "source_sentence_final": source_sentence_final,
         },
         "model_settings": {key: settings[key] for key in (
             "id", "revision", "device", "max_input_tokens", "max_input_characters",
@@ -372,6 +384,8 @@ def main(argv: list[str] | None = None) -> int:
                      help="Stage 10 dev-only extractive final fallback; requires --preserve-map-evidence")
     run.add_argument("--balanced-source-final", action="store_true",
                      help="Stage 10 dev-only optional lead-prose final ablation; requires both evidence flags")
+    run.add_argument("--source-sentence-final", action="store_true",
+                     help="Stage 10 dev-only v5 exact source-sentence extractive final; requires all three evidence flags")
     review = sub.add_parser("review-template")
     review.add_argument("--runs", type=Path, required=True)
     review.add_argument("--output", type=Path, required=True)
@@ -395,6 +409,7 @@ def main(argv: list[str] | None = None) -> int:
                 preserve_map_evidence=args.preserve_map_evidence,
                 source_grounded_final=args.source_grounded_final,
                 balanced_source_final=args.balanced_source_final,
+                source_sentence_final=args.source_sentence_final,
             ))
             print(f"Saved raw model outputs: {args.output}")
         elif args.command == "review-template":

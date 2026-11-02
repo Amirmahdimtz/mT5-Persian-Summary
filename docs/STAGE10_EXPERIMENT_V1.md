@@ -506,3 +506,36 @@ $env:env_type = 'development'
 Review `local_stage10_selector_audit_v3_2.json` before any new candidate code. If source quotes are absent from every eligible clause, the appropriate next controlled change is **safe, section-aware extraction from introductory prose**, not another decoder or Reduce parameter adjustment. If quotes are eligible but remain absent in final output, inspect token-cap and coverage allocation. No release claim follows from this diagnostic.
 
 **Verification at commit:** new offline selector audit was tested with a fake DI/model, **5 passed (0.08s)**, Python compilation succeeded. **Full Windows tests and actual tokenizer audit have NOT been run after this addition**. Stage 10 **In Progress**, Candidate v3.2 not production-certified.
+
+## 15. v3.2 Windows selector audit: all missing MVP facts are outside bullet eligibility (2026-11-02)
+
+**User-side verification on the selector-audit head:** `git pull --ff-only` reached `337e48339ab684cc7196edce338052834517df2a`; Python compileall clean, targeted audit tests **5 passed**, full suite **365 passed, 2 nonblocking deprecation warnings** (28.52s). The pinned actual tokenizer `benchmarks.stage10_selector_audit` ran successfully with **zero mT5 generation calls** and exported `local_stage10_selector_audit_v3_2.json` (dataset SHA `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c`; source run SHA `9888323b47efd0291879596d9c7a0caa3e637ae0b3b522cf020bf3c2ef9a28e8`).
+
+| Development source | Source chunks | Selected/eligible unique source bullets | Excluded source clauses | Pinned facts present in original / selected / final |
+| --- | ---: | ---: | ---: | --- |
+| Architecture guide | 10 | 21 / 21 | 0 | 3/3 source, 3/3 selected, 3/3 final |
+| MVP plan | 9 | 24 / 24 | 13 | **3/3 source, 0/3 selected, 0/3 final** |
+
+**Root cause at the selection boundary:** The three required MVP facts (`file_formats`, `multi_file`, `eight_stages`) are genuinely present in the original document but not in any selected source clauses or excluded clauses. This rules out the scope-exclusion filter as the reason for these **particular** omissions and confirms an **eligibility gap** in the current *bullet-focused* selector. The audit does not establish what happens to unselected paraphrases in Map/Reduce. No holdout input was accessed.
+
+### No-inference lead-prose preview (diagnostic-only)
+
+A new **opt-in** `--preview-lead-prose` switch extends `benchmarks.stage10_selector_audit`. It additionally scans the Markdown preface (including blockquotes) and the first major `##` section, splitting ordinary prose into source-verbatim candidate sentences. It stops at the next major `##` section and skips code fences, bullet lists, and tables. It records only the number of lead-prose candidates and **per-fact exact-quote eligibility booleans**, not original prose or summaries. It changes **no** service selection, generation, final output policy, model settings, or API path.
+
+Initial assistant-only lexical smoke on the pinned `IMPLEMENTATION_PLAN.md` yielded **17 preliminary lead-prose fragments**, with all three original MVP fact quotes present in at least one candidate: combined TXT/PDF/DOCX, multiple files, and eight stages. This is **only a potential source-coverage upper bound**; some candidates are metadata or context fragments, and the preview does not prioritize, enforce token budgets, check actual Map preservation, or verify semantic validity. It is **not Candidate v4** and must not be reported as a quality improvement.
+
+Windows PowerShell after pulling:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_selector_audit.py
+.\.venv\Scripts\python.exe -m pytest -q
+
+.\.venv\Scripts\python.exe -m benchmarks.stage10_selector_audit --dataset local_quality_project_v1.json --runs local_stage10_project_dev_candidate_v3_2.json --preview-lead-prose --output local_stage10_prose_preview_v3_2.json
+```
+
+Upload only `local_stage10_prose_preview_v3_2.json` (metadata-only). Next, **before adding new runtime changes**, evaluate whether a *general-purpose* scope-aware prose selector and strict per-tier tokenizer budget can retain important introductory facts without losing the three architecture requirements or introducing future/out-of-scope claims. The existing reviewed-result requirement and the Stage 9 frozen synthetic gates remain unchanged; Stage 10 is **In Progress**.
+
+**Verification honesty:** four new preview-specific tests are committed but full Windows regression has **not** run after the preview code change. The previously observed 365 passed apply only to the preceding audit head.

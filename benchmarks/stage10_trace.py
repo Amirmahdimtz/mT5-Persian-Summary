@@ -24,6 +24,66 @@ from benchmarks.quality_benchmark import (
 )
 
 
+class MapEvidenceRecorder:
+    """Observe the *post-generation* Map augmentation without saving text.
+
+    CallRecorder sees provider.generate outputs, which precede this stage.
+    These events expose whether source excerpts survived the tokenizer cap
+    and whether they reached the following model call. Phrase matching is
+    literal and must never be reported as semantic fact coverage.
+    """
+
+    MAX_EVENTS = 128
+
+    def __init__(
+        self, facts: list[dict[str, str]], model_calls: list[dict[str, Any]],
+        selector: Callable[[str], list[str]],
+    ) -> None:
+        self._quotes = {fact["id"]: fact["source_quote"] for fact in facts}
+        self._model_calls = model_calls
+        self._selector = selector
+        self.events: list[dict[str, Any]] = []
+
+    def _matches(self, text: str) -> list[str]:
+        return [key for key, quote in self._quotes.items() if quote in text]
+
+    def wrap(self, method: Callable[[str, str], Awaitable[str]]) -> Callable[[str, str], Awaitable[str]]:
+        async def measured(source: str, summary: str) -> str:
+            if len(self.events) >= self.MAX_EVENTS:
+                raise BenchmarkInputError("Map augmentation event budget exhausted")
+            selected = self._selector(source)
+            entry: dict[str, Any] = {
+                "event": len(self.events) + 1,
+                "preceding_model_call": len(self._model_calls),
+                "source_chars": len(source),
+                "before_chars": len(summary),
+                "source_exact_fact_ids": self._matches(source),
+                "before_exact_fact_ids": self._matches(summary),
+                "selected_source_lines": len(selected),
+                "selected_exact_fact_ids": [
+                    key for key, quote in self._quotes.items()
+                    if any(quote in line for line in selected)
+                ],
+            }
+            try:
+                augmented = await method(source, summary)
+            except BaseException as error:
+                entry["error_code"] = type(error).__name__
+                raise
+            else:
+                entry.update({
+                    "after_chars": len(augmented),
+                    "after_exact_fact_ids": self._matches(augmented),
+                    "appended_source_lines": sum(
+                        line not in summary and line in augmented for line in selected
+                    ),
+                })
+                return augmented
+            finally:
+                self.events.append(entry)
+        return measured
+
+
 class CallRecorder:
     """Capture safe bounded inference metadata, never private input or output text."""
 
@@ -76,7 +136,10 @@ def select_dev_case(data: dict[str, Any], case_id: str) -> dict[str, Any]:
     return case
 
 
-async def execute_async(dataset_path: Path, case_id: str, length: str, output: Path) -> None:
+async def execute_async(
+    dataset_path: Path, case_id: str, length: str, output: Path,
+    *, preserve_map_evidence: bool = False,
+) -> None:
     # Delayed imports prevent model downloads during offline unit tests.
     from src.core.services.summarization.long_text_summarization_service import LongTextSummarizationService
     from src.infrastructure.di.bootstrap import bootstrap_di
@@ -86,6 +149,10 @@ async def execute_async(dataset_path: Path, case_id: str, length: str, output: P
 
     if length not in ("short", "medium", "long"):
         raise BenchmarkInputError("invalid summary length")
+    if type(preserve_map_evidence) is not bool:
+        raise BenchmarkInputError("preserve_map_evidence must be a boolean")
+    if output.exists():
+        raise BenchmarkInputError("trace output already exists; choose a new versioned path")
     case = select_dev_case(read_json(dataset_path), case_id)
     bootstrap_di()
     service = resolve(LongTextSummarizationService)
@@ -95,17 +162,33 @@ async def execute_async(dataset_path: Path, case_id: str, length: str, output: P
     normalized_source = service._chunker.normalize(case["text"])
     recorder = CallRecorder(normalized_source, case["facts"])
     original = provider.summarize_async
+    map_recorder: MapEvidenceRecorder | None = None
+    original_map: Callable[[str, str], Awaitable[str]] | None = None
+    if preserve_map_evidence:
+        original_map = service._augment_map_async
+        map_recorder = MapEvidenceRecorder(
+            case["facts"], recorder.calls, service._evidence_lines
+        )
     provider.summarize_async = recorder.wrap(original)
+    if map_recorder is not None and original_map is not None:
+        service._augment_map_async = map_recorder.wrap(original_map)
     start = time.perf_counter()
     summary: str | None = None
     failure: str | None = None
     try:
         try:
-            summary = await service.summarize_async(case["text"], length)
+            if preserve_map_evidence:
+                summary = await service.summarize_async(
+                    case["text"], length, preserve_map_evidence=True
+                )
+            else:
+                summary = await service.summarize_async(case["text"], length)
         except Exception as error:
             failure = type(error).__name__
     finally:
         provider.summarize_async = original
+        if original_map is not None:
+            service._augment_map_async = original_map
     settings = ConfigReader().get("model")
     report = {
         "dataset_sha256": dataset_hash(dataset_path),
@@ -113,6 +196,10 @@ async def execute_async(dataset_path: Path, case_id: str, length: str, output: P
         "summary_length": length,
         "model_revision": settings["revision"],
         "no_repeat_ngram_size": settings.get("no_repeat_ngram_size", 0),
+        "pipeline_settings": {"preserve_map_evidence": preserve_map_evidence},
+        "map_evidence_augmentations": (
+            map_recorder.events if map_recorder is not None else []
+        ),
         "source_characters": len(normalized_source),
         "expected_fact_ids": [f["id"] for f in case["facts"]],
         "calls": recorder.calls,
@@ -125,7 +212,8 @@ async def execute_async(dataset_path: Path, case_id: str, length: str, output: P
         "total_elapsed_seconds": round(time.perf_counter() - start, 3),
         "warning": (
             "Exact text matches do not prove semantic fact survival or omission. "
-            "No source or generated text is saved; do not infer a specific model root cause "
+            "Post-Map metadata describes actual augmentation when enabled, not just "
+            "raw model output. No source or generated text is saved; do not infer a specific model root cause "
             "without reviewing intermediate summaries. This CLI runs only in a local process."
         ),
     }
@@ -140,9 +228,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--case-id", required=True)
     parser.add_argument("--length", choices=("short", "medium", "long"), default="medium")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--preserve-map-evidence", action="store_true",
+        help="Trace the Stage 10 development-only post-generation Map evidence trial",
+    )
     args = parser.parse_args(argv)
     try:
-        asyncio.run(execute_async(args.dataset, args.case_id, args.length, args.output))
+        asyncio.run(execute_async(
+            args.dataset, args.case_id, args.length, args.output,
+            preserve_map_evidence=args.preserve_map_evidence,
+        ))
     except (OSError, ValueError, json.JSONDecodeError) as error:
         parser.exit(2, f"Stage 10 trace failed: {type(error).__name__}: {error}\n")
     print(f"Saved privacy-minimized development inference trace: {args.output}")

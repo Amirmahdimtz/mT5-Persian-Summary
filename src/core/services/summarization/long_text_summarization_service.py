@@ -113,13 +113,36 @@ class LongTextSummarizationService:
                 current = candidate
         return current
 
+    async def _final_source_evidence_async(
+        self, source_lines: list[str], final_budget: int
+    ) -> str | None:
+        """Make an optional extractive fallback from first-level source quotes.
+
+        No benchmark reference facts or generated intermediate text are used.
+        Source-order preference is intentional and must be evaluated on diverse
+        real documents before it can ever become the default.
+        """
+        chosen: list[str] = []
+        for sentence in source_lines:
+            if sentence in chosen:
+                continue
+            candidate = "\n".join((*chosen, sentence))
+            if len(candidate) > self._provider.max_input_characters:
+                continue
+            if await asyncio.to_thread(self._output_fits, candidate, final_budget):
+                chosen.append(sentence)
+        return "\n".join(chosen) if chosen else None
+
     async def summarize_async(
         self, text: str, summary_length: str = "medium",
-        *, preserve_map_evidence: bool = False
+        *, preserve_map_evidence: bool = False,
+        source_grounded_final: bool = False,
     ) -> str:
         desired_budget = self.output_token_budget(summary_length)
-        if type(preserve_map_evidence) is not bool:
-            raise SummarizationInputError("preserve_map_evidence must be a boolean")
+        if type(preserve_map_evidence) is not bool or type(source_grounded_final) is not bool:
+            raise SummarizationInputError("evidence trial flags must be booleans")
+        if source_grounded_final and not preserve_map_evidence:
+            raise SummarizationInputError("source_grounded_final requires preserve_map_evidence")
         try:
             current = self._chunker.normalize(text)
         except ChunkingInputError as error:
@@ -129,6 +152,7 @@ class LongTextSummarizationService:
             raise ChunkingLimitError("input exceeds chunking character budget")
 
         calls = 0
+        first_level_source_evidence: list[str] = []
 
         async def infer(value: str, limit: int) -> str:
             nonlocal calls
@@ -142,7 +166,7 @@ class LongTextSummarizationService:
                 raise ModelOutputError("mT5 returned an empty hierarchical summary")
             return summary.strip()
 
-        for _ in range(self.MAX_HIERARCHY_LEVELS):
+        for level in range(self.MAX_HIERARCHY_LEVELS):
             if await asyncio.to_thread(self._chunker.fits, current):
                 result = await infer(current, desired_budget)
                 # Re-encoding is not always token-identical to decoder IDs;
@@ -150,6 +174,14 @@ class LongTextSummarizationService:
                 if (len(result) > self._provider.max_input_characters or
                         not await asyncio.to_thread(self._output_fits, result, desired_budget)):
                     raise SummaryOutputLimitError("summary exceeds requested token budget")
+                # Stage 10 experimental fallback: only verbatim excerpts from
+                # original source chunks, never from generated reductions.
+                if source_grounded_final and first_level_source_evidence:
+                    source_only = await self._final_source_evidence_async(
+                        first_level_source_evidence, desired_budget
+                    )
+                    if source_only is not None:
+                        return source_only
                 return result
 
             chunks = await asyncio.to_thread(self._chunker.chunk, current)
@@ -165,6 +197,12 @@ class LongTextSummarizationService:
                 part = await infer(chunk, self._provider.max_output_tokens)
                 if preserve_map_evidence:
                     part = await self._augment_map_async(chunk, part)
+                    if source_grounded_final and level == 0:
+                        # Only collect excerpts really retained in the first
+                        # Map result, and sourced from original input.
+                        for sentence in self._evidence_lines(chunk):
+                            if sentence in part and sentence not in first_level_source_evidence:
+                                first_level_source_evidence.append(sentence)
                 parts.append(part)
             merged = "\n\n".join(parts)
             # A very small reduction cannot converge within bounded depth.

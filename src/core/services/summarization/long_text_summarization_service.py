@@ -51,6 +51,13 @@ class LongTextSummarizationService:
     _ACTION = re.compile(r"نساز|نکن|تصمیم")
     _CODE = re.compile(r"[@`]")
     _DETAIL = re.compile(r"[/\d۰-۹A-Z]")
+    _LEAD_QUANTITY = re.compile(r"\b(?:یک|دو|سه|چهار|پنج|شش|هفت|هشت|نه|ده|[0-9۰-۹]+)\b")
+    _LEAD_CAPABILITY = re.compile(
+        r"پشتیبانی|می‌توان|می‌شود|می‌شوند|بتواند|توانایی|support", re.IGNORECASE
+    )
+    _LEAD_TECH = re.compile(r"`[^`]+`|(?<!\w)[A-Z]{2,}(?!\w)")
+    _MAX_LEAD_CANDIDATES = 32
+    _MAX_LEAD_FINAL_SENTENCES = 3
     _HEADING = re.compile(r"^(#{1,6})[ \t]+(.+)$")
     _EXCLUDED_SECTION = re.compile(
         r"خارج\s+از\s+(?:محدوده|دامنه)|عدم\s+پشتیبانی|پشتیبانی\s+نشده"
@@ -162,6 +169,88 @@ class LongTextSummarizationService:
                 excluded.add(sentence)
         return excluded
 
+    @classmethod
+    def _lead_source_sentences(cls, source: str) -> list[str]:
+        """Extract preface/first-section prose verbatim, respecting heading scope."""
+        result: list[str] = []
+        fenced = False
+        seen_major = False
+        scopes: list[tuple[int, bool]] = []
+        for raw in source.splitlines():
+            line = raw.strip()
+            if line.startswith("```"):
+                fenced = not fenced
+                continue
+            if fenced or not line or line == "---":
+                continue
+            heading = cls._HEADING.match(line)
+            if heading:
+                level = len(heading.group(1))
+                if level == 2:
+                    if seen_major:
+                        break
+                    seen_major = True
+                while scopes and scopes[-1][0] >= level:
+                    scopes.pop()
+                scopes.append((
+                    level,
+                    bool(scopes and scopes[-1][1])
+                    or bool(cls._EXCLUDED_SECTION.search(heading.group(2))),
+                ))
+                continue
+            if scopes and scopes[-1][1]:
+                continue
+            if line.startswith(("-", "*", "•", "|", "~~~")):
+                continue
+            if line.startswith(">"):
+                line = line.lstrip(">").strip()
+            if not line or line.startswith("#"):
+                continue
+            for candidate in cls._FIRST_SENTENCE.split(line):
+                sentence = candidate.strip()
+                if (24 <= len(sentence) <= 300 and
+                        re.search(r"[\u0600-\u06ff]", sentence) and
+                        sentence not in result):
+                    result.append(sentence)
+                    if len(result) >= cls._MAX_LEAD_CANDIDATES:
+                        return result
+        return result
+
+    async def _balanced_lead_final_async(
+        self, original_source: str, final_budget: int
+    ) -> str | None:
+        """Optional v4: favor informative, concise, exact source prose sentences.
+
+        Never read reference facts or summaries. Each complete emitted sentence
+        is verified against the final tokenizer ceiling, including specials.
+        """
+        ranked: list[tuple[float, int, int, str]] = []
+        for position, sentence in enumerate(self._lead_source_sentences(original_source)):
+            raw_score = (
+                5 * bool(self._LEAD_CAPABILITY.search(sentence))
+                + 4 * bool(self._LEAD_QUANTITY.search(sentence))
+                + min(3, len(self._LEAD_TECH.findall(sentence)))
+            )
+            if not raw_score:
+                continue
+            if len(sentence) > self._provider.max_input_characters:
+                continue
+            tokens = await asyncio.to_thread(self._provider.count_input_tokens, sentence)
+            if tokens <= 0 or tokens > final_budget:
+                continue
+            ranked.append((-raw_score / tokens, tokens, position, sentence))
+        ranked.sort()
+        chosen: list[tuple[int, str]] = []
+        for _density, _tokens, position, sentence in ranked:
+            if len(chosen) >= self._MAX_LEAD_FINAL_SENTENCES:
+                break
+            tentative = sorted((*chosen, (position, sentence)))
+            candidate = "\n".join(part for _, part in tentative)
+            if (len(candidate) <= self._provider.max_input_characters and
+                    await asyncio.to_thread(self._output_fits, candidate, final_budget)):
+                chosen = tentative
+        return "\n".join(part for _, part in chosen) if chosen else None
+
     async def _augment_map_async(self, source: str, summary: str) -> str:
         """Retain only exact source excerpts if the intermediate cap permits."""
         current = summary
@@ -201,12 +290,17 @@ class LongTextSummarizationService:
         self, text: str, summary_length: str = "medium",
         *, preserve_map_evidence: bool = False,
         source_grounded_final: bool = False,
+        balanced_source_final: bool = False,
     ) -> str:
         desired_budget = self.output_token_budget(summary_length)
-        if type(preserve_map_evidence) is not bool or type(source_grounded_final) is not bool:
+        if any(type(flag) is not bool for flag in (
+            preserve_map_evidence, source_grounded_final, balanced_source_final
+        )):
             raise SummarizationInputError("evidence trial flags must be booleans")
         if source_grounded_final and not preserve_map_evidence:
             raise SummarizationInputError("source_grounded_final requires preserve_map_evidence")
+        if balanced_source_final and not source_grounded_final:
+            raise SummarizationInputError("balanced_source_final requires source_grounded_final")
         try:
             current = self._chunker.normalize(text)
         except ChunkingInputError as error:
@@ -217,6 +311,7 @@ class LongTextSummarizationService:
 
         calls = 0
         first_level_source_evidence: list[str] = []
+        original_source = current
         excluded_original_clauses = (
             self._excluded_original_clauses(current) if source_grounded_final else set()
         )
@@ -243,6 +338,12 @@ class LongTextSummarizationService:
                     raise SummaryOutputLimitError("summary exceeds requested token budget")
                 # Stage 10 experimental fallback: only verbatim excerpts from
                 # original source chunks, never from generated reductions.
+                if balanced_source_final and first_level_source_evidence:
+                    prose_only = await self._balanced_lead_final_async(
+                        original_source, desired_budget
+                    )
+                    if prose_only is not None:
+                        return prose_only
                 if source_grounded_final and first_level_source_evidence:
                     source_only = await self._final_source_evidence_async(
                         first_level_source_evidence, desired_budget

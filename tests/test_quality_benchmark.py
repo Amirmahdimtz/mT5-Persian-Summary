@@ -181,6 +181,7 @@ def test_model_execution_wiring_with_fake_backend(monkeypatch, tmp_path):
     assert all(x["summary"] == "خلاصه medium" for x in result["results"])
     assert all(x["output_tokens_including_specials"] == 3 for x in result["results"])
     assert result["model_settings"] == {"id": "test-only"}
+    assert result["inference_mode"] == "mt5_generate"
     assert result["pipeline_settings"] == {
         "preserve_map_evidence": False, "source_grounded_final": False,
         "balanced_source_final": False, "source_sentence_final": False,
@@ -240,6 +241,7 @@ def test_model_execution_wiring_with_fake_backend(monkeypatch, tmp_path):
         "preserve_map_evidence": True, "source_grounded_final": True,
         "balanced_source_final": True, "source_sentence_final": True,
     }
+    assert v5["inference_mode"] == "source_sentence_only_no_model_generate"
     assert len(v5["results"]) == 5
     assert fake_service.source_sentence_flags == [False] * 20 + [True] * 5
 

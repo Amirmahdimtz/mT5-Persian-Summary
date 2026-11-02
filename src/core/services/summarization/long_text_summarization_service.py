@@ -439,8 +439,11 @@ class LongTextSummarizationService:
             extractive = await self._source_sentence_final_async(
                 original_source, summary_length, desired_budget
             )
-            if extractive is not None:
-                return extractive
+            if extractive is None:
+                raise SummarizationNoProgressError(
+                    "no complete source sentence fits requested token budget"
+                )
+            return extractive
         excluded_original_clauses = (
             self._excluded_original_clauses(current) if source_grounded_final else set()
         )

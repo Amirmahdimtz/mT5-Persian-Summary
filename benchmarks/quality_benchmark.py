@@ -261,7 +261,7 @@ def score_reviews(dataset: dict[str, Any], runs: dict[str, Any], reviews: dict[s
 
 async def execute_async(
     dataset_path: Path, output_path: Path, lengths: list[str], split: str,
-    *, preserve_map_evidence: bool = False
+    *, preserve_map_evidence: bool = False, source_grounded_final: bool = False
 ) -> None:
     # Delayed imports: validate/score commands never import torch or download weights.
     from src.core.services.summarization.long_text_summarization_service import LongTextSummarizationService
@@ -270,10 +270,12 @@ async def execute_async(
     from src.infrastructure.ml.mt5_model_provider import Mt5ModelProvider
     from src.infrastructure.utils.config_reader import ConfigReader
 
-    if type(preserve_map_evidence) is not bool:
-        raise BenchmarkInputError("preserve_map_evidence must be a boolean")
-    # An exploratory candidate must never run the reserved holdout.
-    if preserve_map_evidence and split != "dev":
+    if type(preserve_map_evidence) is not bool or type(source_grounded_final) is not bool:
+        raise BenchmarkInputError("trial flags must be booleans")
+    if source_grounded_final and not preserve_map_evidence:
+        raise BenchmarkInputError("source-grounded final requires map evidence trial")
+    # Neither trial can run on the reserved holdout.
+    if (preserve_map_evidence or source_grounded_final) and split != "dev":
         raise BenchmarkInputError("map evidence trial requires split=dev")
     dataset = read_json(dataset_path)
     selected = [c for c in validate_dataset(dataset) if split == "all" or c["split"] == split]
@@ -288,7 +290,8 @@ async def execute_async(
             try:
                 if preserve_map_evidence:
                     summary = await service.summarize_async(
-                        case["text"], length, preserve_map_evidence=True
+                        case["text"], length, preserve_map_evidence=True,
+                        source_grounded_final=source_grounded_final,
                     )
                 else:
                     summary = await service.summarize_async(case["text"], length)
@@ -303,7 +306,10 @@ async def execute_async(
         "dataset_sha256": dataset_hash(dataset_path), "dataset_version": dataset["version"],
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "python": platform.python_version(), "platform": platform.platform(),
-        "pipeline_settings": {"preserve_map_evidence": preserve_map_evidence},
+        "pipeline_settings": {
+            "preserve_map_evidence": preserve_map_evidence,
+            "source_grounded_final": source_grounded_final,
+        },
         "model_settings": {key: settings[key] for key in (
             "id", "revision", "device", "max_input_tokens", "max_input_characters",
             "max_output_tokens", "num_beams", "repetition_penalty", "length_penalty",
@@ -347,6 +353,8 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--lengths", nargs="+", choices=LENGTHS, default=list(LENGTHS))
     run.add_argument("--preserve-map-evidence", action="store_true",
                      help="Stage 10 dev-only extractive Map ablation; off by default")
+    run.add_argument("--source-grounded-final", action="store_true",
+                     help="Stage 10 dev-only extractive final fallback; requires --preserve-map-evidence")
     review = sub.add_parser("review-template")
     review.add_argument("--runs", type=Path, required=True)
     review.add_argument("--output", type=Path, required=True)
@@ -367,7 +375,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "run":
             asyncio.run(execute_async(
                 args.dataset, args.output, list(dict.fromkeys(args.lengths)), args.split,
-                preserve_map_evidence=args.preserve_map_evidence
+                preserve_map_evidence=args.preserve_map_evidence,
+                source_grounded_final=args.source_grounded_final,
             ))
             print(f"Saved raw model outputs: {args.output}")
         elif args.command == "review-template":

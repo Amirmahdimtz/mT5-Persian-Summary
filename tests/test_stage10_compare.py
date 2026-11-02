@@ -90,3 +90,16 @@ def test_metadata_comparison_does_not_leak_unknown_private_fields():
     report = compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
     assert "private_token" not in report["baseline_generation"]
     assert "api_key" not in report["candidate_generation"]
+
+
+def test_map_trial_provenance_is_explicit_and_type_checked():
+    dataset, baseline, candidate = pair()
+    baseline["pipeline_settings"] = {"preserve_map_evidence": False}
+    candidate["pipeline_settings"] = {"preserve_map_evidence": True}
+    report = compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
+    assert report["baseline_preserve_map_evidence"] is False
+    assert report["candidate_preserve_map_evidence"] is True
+
+    candidate["pipeline_settings"]["preserve_map_evidence"] = 1
+    with pytest.raises(BenchmarkInputError, match="boolean"):
+        compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)

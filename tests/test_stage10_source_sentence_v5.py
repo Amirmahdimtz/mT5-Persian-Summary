@@ -163,3 +163,58 @@ def test_v5_default_behavior_and_existing_v4_flags_unchanged():
     output = run(svc.summarize_async("این متن فارسی کوتاه است.", "medium"))
     assert output == "generated model claim"
     assert provider.calls
+
+
+def test_v5_rejoins_pdf_display_wrapped_sentence_across_single_blank_spacer():
+    svc, provider = service()
+    # pypdf layout can emit a blank line between physical lines of one sentence.
+    text = (
+        "گزارش نمونه فارسی برای آزمایش پردازش اسناد\n\n\n"
+        "هدف از پردازش خودکار متن آن است که نکات مهم با کمترین خطا استخراج\n\n"
+        "شود و خواننده بتواند تصویری روشن از موضوع به دست آورد.\n\n\n"
+        "۱ . مقدمه\n\n"
+        "در بخش دوم زمان رسیدگی به خرابی‌ها کاهش یافته است."
+    )
+    sentences = [sentence for _, sentence in svc._source_sentence_candidates(text)]
+    assert sentences == [
+        "هدف از پردازش خودکار متن آن است که نکات مهم با کمترین خطا استخراج "
+        "شود و خواننده بتواند تصویری روشن از موضوع به دست آورد.",
+        "در بخش دوم زمان رسیدگی به خرابی‌ها کاهش یافته است.",
+    ]
+    assert not any(sentence.startswith("شود و خواننده") for sentence in sentences)
+    assert not any("مقدمه" in sentence for sentence in sentences)
+    result = run(svc.summarize_async(text, "long", **FLAGS))
+    assert all(line in sentences for line in result.splitlines())
+    assert provider.calls == []
+
+
+def test_v5_never_joins_across_two_blank_lines_or_markdown_exclusion():
+    svc, _ = service()
+    text = (
+        "این عبارت ناتمام مانده است و باید تکمیل\n\n\n"
+        "جمله جدید یک تصمیم رسمی را گزارش می‌کند.\n\n"
+        "## خارج از محدوده\n"
+        "بخش غیرمجاز در متن اصلی وجود دارد.\n"
+        "## بخش فعلی\n"
+        "اینجا قابلیت فعلی توصیف شده است."
+    )
+    sentences = [sentence for _, sentence in svc._source_sentence_candidates(text)]
+    assert "جمله جدید یک تصمیم رسمی را گزارش می‌کند." in sentences
+    assert "اینجا قابلیت فعلی توصیف شده است." in sentences
+    assert not any("عبارت ناتمام" in sentence for sentence in sentences)
+    assert not any("غیرمجاز" in sentence for sentence in sentences)
+
+
+def test_v5_preserves_original_negation_across_pdf_wrapped_lines():
+    svc, _ = service()
+    text = (
+        "برای مثال، افزایش مصرف الزاماً به معنای خرابی شبکه نیست و شاید\n\n"
+        "به تغییر فصل یا افزایش تعداد مشترکان مربوط باشد.\n\n\n"
+        "برای نمونه، جمله «احتمال نشتی وجود دارد» نباید به عبارت\n\n"
+        "«نشتی تأیید شد» تبدیل شود؛ زیرا تغییر، سطح اطمینان را دگرگون می‌کند."
+    )
+    sentences = [sentence for _, sentence in svc._source_sentence_candidates(text)]
+    assert "افزایش مصرف الزاماً به معنای خرابی شبکه نیست" in sentences[0]
+    assert "شاید به تغییر فصل" in sentences[0]
+    assert "نباید به عبارت «نشتی تأیید شد» تبدیل شود؛" in sentences[1]
+    assert not any(sentence.startswith("«نشتی تأیید شد»") for sentence in sentences)

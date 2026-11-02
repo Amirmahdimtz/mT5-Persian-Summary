@@ -342,3 +342,53 @@ $env:env_type = 'development'
 The last command **performs one real full hierarchical inference** on an already approved Development Markdown document. It does not need a new reference dataset or a fresh review template. Please share only the resulting small metadata-only `local_stage10_trace_architecture_v2_map.json` file. The previous `local_stage10_trace_architecture_v1.json` is not suitable for proving post-generation excerpt preservation because that trace did not invoke the v2 opt-in path.
 
 **Checkpoint, decoding, Production and HTTP behavior remain unchanged.** Stage 10 remains **In Progress**; Candidate v2 is still **NO-GO** on fact coverage. The new trace and tests are committed, but the real CPU augmented trace and post-change Windows test suite are **not yet run**.
+
+
+## 11. Actual post-Map trace confirms final Reduce drops source evidence; opt-in Candidate v3 (2026-11-02)
+
+### Verified Windows evidence from user
+
+After the post-generation instrumentation landed at `f595d272234eb1fd7546f8fc8cd7eff70d750670`, the user executed:
+- Targeted `tests/test_stage10_trace.py tests/test_stage10_map_replay.py`: **14 passed**.
+- Complete `pytest -q`: **345 passed, 2 nonblocking deprecation warnings** (18.61s).
+- Real pinned CPU `benchmarks.stage10_trace --preserve-map-evidence` for `real_architecture_guide` on Development: **successful**, output `local_stage10_trace_architecture_v2_map.json`. 10 original-source Map invocations followed by one final Reduce, all with the same checkpoint revision and `no_repeat_ngram_size=3`, dataset SHA-256 `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c`.
+
+**Conclusive boundary result for this one authentic document:** the first Map **raw 65-character output** contained none of the three essential rules. **After** the Map source-excerpt insertion, the first Map part expanded to **304 chars**, included all three *verbatim* rules and **appended 3 source lines**. The **11th / final Reduce model input** contained all three exact rules (2,182 chars, output budget 80 tokens), but the **11th model output** contained none (65 chars, identical generic ChatGPT-purpose summary). Because the final sentence is known from the earlier generated-text probe, these rules are absent **semantically as well as verbatim** in this final result. Thus in this case the last generation discards genuinely preserved original-source evidence; the issue is **not** failure to select or fit the facts during initial Map augmentation.
+
+This does **not** establish that the model always loses factual information, that the Map is satisfactory on other documents, or that a source-only fallback is production-ready. No controlled latency/peak-memory evidence, independent human annotation or reserved holdout evaluation is available.
+
+### Candidate v3 — controlled, source-grounded final fallback (disabled by default)
+
+To test whether **final-generation omission** can be mitigated without prompt hacking, checkpoint changes or fabricated source facts, the long-text service now accepts a **second experimental keyword** `source_grounded_final=True`, **only alongside** `preserve_map_evidence=True`. Normal API calls keep both flags **False**.
+
+On multi-chunk text only, the optional path records the exact **original-source sentences actually carried forward in first-level Map results**. It still performs the same final mT5 Reduce call, validates its output normally, then constructs a *source-only* extractive alternative in **source order**, adding whole clauses only if the actual tokenizer count stays within the final tier's encoded-token ceiling (medium=80). The extractive candidate **replaces** the generic final Reduce output only when at least one clause fits; otherwise the original generated result is returned. Source excerpts are never paraphrased, truncated or injected from benchmark labels. Subsequent Map levels cannot contribute unverified/generated text to this fallback.
+
+**Tradeoffs:** this is explicitly **extractive, not abstractive**, and prioritizing early source clauses can bias coverage away from later sections or different viewpoints. It may be a set of disconnected sentences rather than coherent prose; original source sentences may themselves contain disputed claims. It does not guarantee coverage, faithfulness, fairness or readability. It is a *single-variable candidate* relative to v2: same pinned model/decoder/chunking and Map source-excerpt trial, plus the final replacement policy. The existing API and Production are unchanged.
+
+The benchmark CLI records `pipeline_settings.source_grounded_final`, prohibits the trial on any `holdout` or `all` split, and the paired comparator surfaces both baseline/candidate flags. The output file may include **verbatim source content**: store it locally, check before sharing, never commit it.
+
+### Windows: first Candidate v3 evaluation (existing Development documents only)
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_final_evidence.py tests/test_stage10_map_evidence.py tests/test_quality_benchmark.py tests/test_stage10_compare.py tests/test_long_text_summarization_service.py
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+If tests pass, evaluate v3 only on the same two Development project documents:
+
+```powershell
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json run --split dev --lengths medium --preserve-map-evidence --source-grounded-final --output local_stage10_project_dev_candidate_v3.json
+
+.\.venv\Scripts\python.exe -m benchmarks.stage10_compare --dataset local_quality_project_v1.json --baseline local_stage10_project_dev_candidate_v2.json --candidate local_stage10_project_dev_candidate_v3.json --output local_stage10_project_dev_compare_v2_v3.json
+
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json review-template --runs local_stage10_project_dev_candidate_v3.json --output local_stage10_project_dev_review_v3.json
+```
+
+Only after reviewing each atomic claim/fact label and actual generated text should the reviewed `score` command be used. The frozen real-source gate remains **≥3/6 required facts and zero critical fabrications**; synthetic gates are still unmet. The new output is an extractive trial and must also be judged for **coherence, document-topic coverage, and source order**, not just verbatim matches.
+
+**Code status:** new v3 code, mock-only tests and benchmark/comparator instrumentation were added to `main`, but **the post-v3 full Windows suite and real CPU v3 candidate have NOT yet been run**. Previous **345 passed** belong to the pre-v3 head. Stage 10 is **In Progress**, Candidate v2 remains **NO-GO**, Candidate v3 is **NOT EVALUATED**.

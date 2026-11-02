@@ -392,3 +392,40 @@ If tests pass, evaluate v3 only on the same two Development project documents:
 Only after reviewing each atomic claim/fact label and actual generated text should the reviewed `score` command be used. The frozen real-source gate remains **≥3/6 required facts and zero critical fabrications**; synthetic gates are still unmet. The new output is an extractive trial and must also be judged for **coherence, document-topic coverage, and source order**, not just verbatim matches.
 
 **Code status:** new v3 code, mock-only tests and benchmark/comparator instrumentation were added to `main`, but **the post-v3 full Windows suite and real CPU v3 candidate have NOT yet been run**. Previous **345 passed** belong to the pre-v3 head. Stage 10 is **In Progress**, Candidate v2 remains **NO-GO**, Candidate v3 is **NOT EVALUATED**.
+
+## 12. Candidate v3 factual audit and scope-aware v3.1 mitigation (2026-11-02)
+
+**Verified Windows v3 tests:** targeted 73 passed; full suite **354 passed, 2 nonblocking deprecation warnings**; pip check and compileall clean. Real CPU model successfully processed the two unchanged development Markdown cases. The paired v2-v3 report confirmed 2/2 outputs changed with the same pinned checkpoint and decoder, and semantic_review_status=NOT_REVIEWED.
+
+**Assistant source-grounded preliminary review (not independent human signoff):**
+
+| Dev document | v3 output | Essential facts covered | Problem |
+| --- | --- | --- | --- |
+| Architecture guide | 294 chars, 79/80 encoded output tokens, four verbatim source excerpts | **3/3**: mandatory standard, no unnecessary Interface, constructor @inject | Extra clause ends in a semicolon; concatenated excerpts may lack coherence |
+| MVP implementation plan | 214 chars, 80/80 encoded output tokens | **0/3 complete**: only TXT and DOCX appear; PDF is absent, so the combined file-formats criterion is incomplete; multi-file and eight stages are missing | A critical **negative-section context inversion** makes unsupported .doc / other Office / image formats appear supported; an unrelated Async naming rule consumes budget |
+
+**Status:** provisional 3/6 required facts is the numeric development threshold, but the critical scope/polarity error means **Candidate v3 NO-GO** under the frozen zero-critical-fabrication criterion. This is a source-grounded assistant review, not the human-reviewed benchmark score. No synthetic tier/coverage gains or representative PDF/DOCX results are established. The two cold CPU timings cannot establish a performance difference.
+
+**Root cause confirmed against the source:** the literal bullet about .doc/Office/image is under the heading '### 2.2 خارج از محدوده نسخه اول' in IMPLEMENTATION_PLAN.md. The v3 fallback copied that bullet without its negative heading. The source text itself is real, but presenting it as a standalone positive capability is misleading.
+
+### v3.1 guarded patch
+
+The opt-in extractive Map selector now tracks Markdown heading hierarchy and avoids bullets below negative-scope headings such as Persian 'خارج از محدوده', 'عدم پشتیبانی', and English 'Out of scope'. A separate scan of the **entire original normalized document** excludes those clauses from the final extractive fallback even if a heading and its bullet were separated into different chunks. Nested excluded headings and code fences are handled; neither source-specific facts nor benchmark IDs are hardcoded.
+
+This safeguard intentionally **does not alter** default REST API calls, model revision, decoding settings, dependencies, or production behavior. It does not reliably interpret exclusions expressed in ordinary prose, PDF extraction, tables or unknown headings, and it might suppress useful warnings. It is an unapproved trial, not a general solution for semantic faithfulness.
+
+**PowerShell after updating main:**
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_final_evidence.py tests/test_stage10_map_evidence.py tests/test_long_text_summarization_service.py
+.\.venv\Scripts\python.exe -m pytest -q
+
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json run --split dev --lengths medium --preserve-map-evidence --source-grounded-final --output local_stage10_project_dev_candidate_v3_1.json
+.\.venv\Scripts\python.exe -m benchmarks.stage10_compare --dataset local_quality_project_v1.json --baseline local_stage10_project_dev_candidate_v3.json --candidate local_stage10_project_dev_candidate_v3_1.json --output local_stage10_project_dev_compare_v3_v3_1.json
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json review-template --runs local_stage10_project_dev_candidate_v3_1.json --output local_stage10_project_dev_review_v3_1.json
+```
+
+Only development cases may be run with the trial flags. Existing output files must not be overwritten; local run files are gitignored. Review the v3.1 candidate for *both* correct negative-scope handling and retention of the three required architecture rules. **Stage 10 In Progress; v3.1 not yet CPU-tested or human-reviewed.**

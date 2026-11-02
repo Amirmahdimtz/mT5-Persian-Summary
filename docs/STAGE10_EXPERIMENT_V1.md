@@ -214,3 +214,47 @@ $env:env_type = 'development'
 **Review objective:** compare the single first-Map generated sentence(s) with the first original architecture source chunk and the pinned rules: mandatory standard, avoiding unnecessary interfaces and constructor `@inject`. If they are semantically absent at this first generation, a controlled **content-preservation Map experiment** is appropriate; if they survive as paraphrases but not the final summary, focus on the Reduce stage instead. Keep Stage 10 **In Progress**. Zero hardcoded reference-fact injections or automatic success labels are permitted.
 
 **Assistant isolated verification of the new probe:** `47 passed` across four offline benchmark/trace/probe test files, and Python compilation succeeded. The full Windows suite and one-call real CPU probe **have not been run since this new addition**.
+
+
+## 8. First-Map semantic finding and isolated extractive Map candidate v2 (2026-11-02)
+
+The user reran the Windows suite on `cad67be418960faced9b9b119d564b0cef5fb510`: targeted first-map + trace tests **9 passed**, full suite **328 passed, 2 nonblocking deprecation warnings**. The real pinned CPU `benchmarks.stage10_first_map_probe` completed and the user shared the single-call JSON for `real_architecture_guide` (first 3,051-character input, **10 chunks** in the entire normalized source, intermediate output ceiling **120**, 24 output tokens including specials, 65 generated characters, 11.906s). The exact first-map output was:
+
+> `برای انتقال استاندارد معماری به چتGPT یا هر توسعه دهنده کافی است.`
+
+All **three** pinned essential rules (`mandatory_standard`, `no_unnecessary_interface`, `constructor_injection`) occurred in this first-Map **source chunk**, but none was semantically conveyed by the generated one-sentence summary. This is now a **source-grounded semantic observation**, not merely a missing exact-quote match: the model chose only the guide's generic purpose, not its obligations. It **does not** prove that `Reduce` is otherwise fault-free, nor that every source/document shares the same failure mode.
+
+### Candidate v2 — controlled, offline Map evidence ablation
+
+A reversible, **disabled-by-default** `LongTextSummarizationService.summarize_async(..., preserve_map_evidence=True)` flag is now available only to an explicitly opted-in benchmark. Existing HTTP controllers, `SummarizationService` and production usage continue calling the normal two-argument method; no model checkpoint, YAML profile, dependency or default production behavior changes.
+
+During **hierarchical Map** processing (not direct short-text inference), the opt-in candidate ranks at most three *source-grounded* bullet clauses by general Persian obligation/decision and code/number signals, with a preference for concise clauses, preserving their original document order. It appends an excerpt to a Map result **only if the tokenizer-confirmed intermediate output remains within the configured `max_output_tokens` budget**. It neither invents content nor uses manifest fact IDs or pinned test quotes; it skips code fences. Existing lossless chunking, max depth/calls and no-progress protections remain active. Unrepresentable candidates are skipped; no raw input or generated text is logged in the API.
+
+**Risks and limitations:** this is an extractive heuristic, not semantic evidence ranking. It favors bullet-heavy Markdown (the available failure case) and may miss facts expressed in ordinary prose, sentence fragments, pages or tables. Model output may still drop preserved clauses during subsequent Map/Reduce passes. Appended excerpts can increase hierarchy depth, token work and CPU latency. Output claims cannot be marked `covered` until independently reviewed. The `preserve_map_evidence` option is **not exposed over HTTP**. This is a **single-variable ablation relative to the already evaluated Candidate v1**: n-gram=3, model revision and section-aware chunking remain fixed, with only Map evidence preservation changed.
+
+### Windows PowerShell: regression and paired CPU test
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_map_evidence.py tests/test_long_text_summarization_service.py tests/test_stage10_compare.py tests/test_quality_benchmark.py
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Run **only the two authentic Development Markdown cases**, with the same `medium` length and checkpoint used for Candidate v1. The test-only CLI blocks `--preserve-map-evidence` with `--split holdout` or `--split all`.
+
+```powershell
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json run --split dev --lengths medium --preserve-map-evidence --output local_stage10_project_dev_candidate_v2.json
+
+.\.venv\Scripts\python.exe -m benchmarks.stage10_compare --dataset local_quality_project_v1.json --baseline local_stage10_project_dev_candidate_v1.json --candidate local_stage10_project_dev_candidate_v2.json --output local_stage10_project_dev_compare_v1_v2.json
+
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json review-template --runs local_stage10_project_dev_candidate_v2.json --output local_stage10_project_dev_review_v2.json
+```
+
+The comparison records `candidate_preserve_map_evidence: true`, while the existing v1 run has `baseline_preserve_map_evidence: null` (historical metadata was not recorded, though the v1 code path did not enable this opt-in). The presence of a longer or different output **does not** prove factual improvement. Review all candidate facts and atomic claims using the fixed source quotes; only then compute `score`. The original sample remains **0/6 covered** under the prior assistant-proposed review. The **Stage 10 ≥3/6 real-source gate** and all synthetic gates are still unmet / pending measurement.
+
+`write_json` uses exclusive creation: if any output file already exists, choose a **new versioned name**, not overwrite a prior model run. Existing `.gitignore` excludes the `/local_stage10_*.json` files because they may contain original or generated document text.
+
+**Verification status at time of the code commit:** the helper was source-inspected and its generic clause selector smoke-checked against the original architecture input. The **new full Windows regression and pinned model Candidate v2 run have not yet been performed**. Stage 10 **In Progress**, production rollout **NO-GO** pending semantic and resource review.

@@ -51,6 +51,22 @@ def _pipeline_trial(run: dict[str, Any]) -> bool | None:
     return value
 
 
+def _final_source_trial(run: dict[str, Any]) -> bool | None:
+    settings = run.get("pipeline_settings")
+    if settings is None:
+        return None
+    if not isinstance(settings, dict):
+        raise BenchmarkInputError("pipeline_settings must be a mapping")
+    value = settings.get("source_grounded_final")
+    if value is None:
+        return None  # Historical v2 candidate did not record this flag.
+    if type(value) is not bool:
+        raise BenchmarkInputError("pipeline_settings.source_grounded_final must be boolean")
+    if value and settings.get("preserve_map_evidence") is not True:
+        raise BenchmarkInputError("source-grounded final requires preserve_map_evidence")
+    return value
+
+
 def _index_runs(data: dict[str, Any], valid_ids: set[str], expected_sha: str) -> dict[tuple[str, str], dict[str, Any]]:
     if data.get("dataset_sha256") != expected_sha:
         raise BenchmarkInputError("run dataset SHA does not match the supplied fixed dataset")
@@ -116,6 +132,8 @@ def compare_runs(dataset: dict[str, Any], expected_sha: str, baseline: dict[str,
         "candidate_generation": _public_settings(candidate),
         "baseline_preserve_map_evidence": _pipeline_trial(baseline),
         "candidate_preserve_map_evidence": _pipeline_trial(candidate),
+        "baseline_source_grounded_final": _final_source_trial(baseline),
+        "candidate_source_grounded_final": _final_source_trial(candidate),
         "different_successful_outputs": sum(x["outputs_identical"] is False for x in comparison),
         "unchanged_successful_outputs": sum(x["outputs_identical"] is True for x in comparison),
         "comparison": comparison,

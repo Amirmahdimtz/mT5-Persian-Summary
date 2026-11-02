@@ -152,3 +152,28 @@ def test_v4_comparison_tracks_only_new_balanced_trial_flag():
     }
     with pytest.raises(BenchmarkInputError, match="requires"):
         compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
+
+
+def test_v5_source_only_trial_provenance_is_explicit_and_guarded():
+    dataset, baseline, candidate = pair()
+    baseline["pipeline_settings"] = {
+        "preserve_map_evidence": True,
+        "source_grounded_final": True,
+        "balanced_source_final": True,
+    }
+    candidate["pipeline_settings"] = {
+        "preserve_map_evidence": True,
+        "source_grounded_final": True,
+        "balanced_source_final": True,
+        "source_sentence_final": True,
+    }
+    result = compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
+    assert result["baseline_source_sentence_final"] is None
+    assert result["candidate_source_sentence_final"] is True
+    candidate["pipeline_settings"]["source_sentence_final"] = "true"
+    with pytest.raises(BenchmarkInputError, match="boolean"):
+        compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
+    candidate["pipeline_settings"]["source_sentence_final"] = True
+    candidate["pipeline_settings"]["balanced_source_final"] = False
+    with pytest.raises(BenchmarkInputError, match="requires"):
+        compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)

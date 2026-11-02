@@ -300,3 +300,45 @@ $env:env_type = 'development'
 The replay report's **`appended_source_lines`** and **`fact_ids_in_replayed_map_output`** indicate whether the selected source-grounded evidence fits alongside the original 65-character Map output. If it does, but the already observed v2 final remains generic, a subsequent controlled Reduce-stage investigation is warranted; if not, refine the selection/cap policy **without** hardcoding test-specific facts. Re-running CPU inference is not needed for this immediate diagnostic.
 
 The assistant ran **5 deterministic replay tests** using a mocked tokenizer/service (no model weights or network) and verified Python compilation. The **full Windows suite after adding this replay tool has not yet been run**. This is an internal diagnostic experiment, not a production quality certificate.
+
+
+## 10. First-Map replay confirmed excerpt selection and token capacity; trace actual post-Map state (2026-11-02)
+
+User-side Windows verification after adding the inference-free first-Map replay: `tests/test_stage10_map_replay.py` **5 passed**, full `pytest -q` **341 passed, 2 nonblocking deprecation warnings**, `compileall` succeeded. The pinned tokenizer replay ran with **zero inference calls** and reported, for `real_architecture_guide`:
+
+| Measured replay field | Result |
+| --- | --- |
+| First Map original encoded output | 24 tokens including specials |
+| Source clauses selected / eligible / appended | **3 / 3 / 3** |
+| Replayed Map output tokens | **88 of 120** maximum |
+| Verbatim fact IDs in replayed output | **all 3:** `mandatory_standard`, `no_unnecessary_interface`, `constructor_injection` |
+| Original dataset SHA | `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c` |
+| Inference calls during replay | **0** |
+
+**What is established:** for this particular **historically recorded first-Map sentence**, the generic extractor can select and append all three true source clauses without exceeding the intermediate model's 120-token budget. Neither a selection miss nor a token-budget overrun explains the missing three facts in this *replayed* first-Map output.
+
+**What remains unknown:** the replay does not prove what Candidate v2 actually appended in its separate genuine Map run. The v2 final summary was unchanged and still omitted these facts; the clauses may have been appended and then discarded in a subsequent generation (possibly the final Reduce), or the actual Map intermediate may have differed. Exact-quote labels are not semantic review.
+
+### New post-generation Map evidence trace
+
+The original `benchmarks.stage10_trace` observed only the provider's **raw** generated output, before the Stage 10 opt-in `_augment_map_async` operation. To close that instrumentation gap, it now supports `--preserve-map-evidence`, matching the real Candidate v2 pipeline.
+
+The updated trace records both sets of **privacy-minimized** metadata: (a) per-provider-call input/output lengths and exact source quote IDs, and (b) `map_evidence_augmentations` with Map event number, preceding provider call, source and generated text lengths, number of selected/appended source lines, and exact fact IDs **before and after** excerpt insertion. It temporarily wraps the DI service method in the **local CLI process only**, restores both methods afterward even on failure, refuses to overwrite output JSON and does not serialize raw source, generated text or source quotes.
+
+This allows a precise **lexical boundary check**: whether `mandatory_standard`, `no_unnecessary_interface` and `constructor_injection` appear after the first Map augmentation, then in the next model input and finally in the model output. **No inference-call trace can alone certify semantic correctness.**
+
+Windows PowerShell from the project root:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_trace.py tests/test_stage10_map_replay.py
+.\.venv\Scripts\python.exe -m pytest -q
+
+.\.venv\Scripts\python.exe -m benchmarks.stage10_trace --dataset local_quality_project_v1.json --case-id real_architecture_guide --length medium --preserve-map-evidence --output local_stage10_trace_architecture_v2_map.json
+```
+
+The last command **performs one real full hierarchical inference** on an already approved Development Markdown document. It does not need a new reference dataset or a fresh review template. Please share only the resulting small metadata-only `local_stage10_trace_architecture_v2_map.json` file. The previous `local_stage10_trace_architecture_v1.json` is not suitable for proving post-generation excerpt preservation because that trace did not invoke the v2 opt-in path.
+
+**Checkpoint, decoding, Production and HTTP behavior remain unchanged.** Stage 10 remains **In Progress**; Candidate v2 is still **NO-GO** on fact coverage. The new trace and tests are committed, but the real CPU augmented trace and post-change Windows test suite are **not yet run**.

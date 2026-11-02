@@ -45,6 +45,7 @@ class LongTextSummarizationService:
     _LENGTH_FRACTIONS = {"short": (1, 3), "medium": (2, 3), "long": (3, 3)}
     _MAP_EVIDENCE_LINES = 3
     _BULLET = re.compile(r"^[-*•][ \t]+(.+)$")
+    _ORDERED_BULLET = re.compile(r"^[0-9۰-۹]{1,3}[.)．][ \t]+(.+)$")
     _FIRST_SENTENCE = re.compile(r"(?<=[.!?؟؛])[ \t]+")
     # Generic Persian obligation/decision signals, not benchmark fact IDs.
     _OBLIGATION = re.compile(r"باید|نباید|الزام|ممنوع|ضروری|موظف")
@@ -345,7 +346,8 @@ class LongTextSummarizationService:
                 if flush_paragraph():
                     return results
                 continue
-            bullet = cls._BULLET.match(line)
+            # Treat Markdown list numbers as boundaries, not sentence endings.
+            bullet = cls._BULLET.match(line) or cls._ORDERED_BULLET.match(line)
             if bullet:
                 if flush_paragraph():
                     return results

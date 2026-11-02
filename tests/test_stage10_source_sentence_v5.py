@@ -231,3 +231,26 @@ def test_v5_raw_source_work_budget_cannot_be_bypassed_by_normalization():
     with pytest.raises(ChunkingLimitError, match="input exceeds chunking character budget"):
         run(svc.summarize_async(source, "long", **FLAGS))
     assert provider.calls == []
+
+def test_v5_numbered_markdown_items_do_not_emit_orphan_list_markers():
+    svc, provider = service()
+    source = (
+        "**کارها:**\n\n"
+        "1. قبل از اعمال تغییرات، ساختار واقعی پروژه و تست‌ها را بررسی کن "
+        "و تنها فایل‌های ضروری را با احتیاط تغییر بده.\n"
+        "2. پس از اجرای تست‌ها، گزارش نتیجه هر مرحله را دقیق ثبت کن "
+        "و هیچ نتیجه اجرا نشده‌ای را موفق اعلام نکن."
+    )
+    sentences = [sentence for _, sentence in svc._source_sentence_candidates(source)]
+    assert sentences == [
+        "قبل از اعمال تغییرات، ساختار واقعی پروژه و تست‌ها را بررسی کن "
+        "و تنها فایل‌های ضروری را با احتیاط تغییر بده.",
+        "پس از اجرای تست‌ها، گزارش نتیجه هر مرحله را دقیق ثبت کن "
+        "و هیچ نتیجه اجرا نشده‌ای را موفق اعلام نکن.",
+    ]
+    result = run(svc.summarize_async(source, "long", **FLAGS))
+    assert result
+    assert all(line in sentences for line in result.splitlines())
+    assert "**کارها:** 1." not in result
+    assert provider.calls == []
+

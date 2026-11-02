@@ -142,12 +142,14 @@ def test_model_execution_wiring_with_fake_backend(monkeypatch, tmp_path):
             self.map_trial_flags = []
             self.final_trial_flags = []
             self.balanced_trial_flags = []
+            self.source_sentence_flags = []
 
         async def summarize_async(
             self, text, summary_length, *,
             preserve_map_evidence=False, source_grounded_final=False,
-            balanced_source_final=False,
+            balanced_source_final=False, source_sentence_final=False,
         ):
+            self.source_sentence_flags.append(source_sentence_final)
             self.map_trial_flags.append(preserve_map_evidence)
             self.final_trial_flags.append(source_grounded_final)
             self.balanced_trial_flags.append(balanced_source_final)
@@ -181,7 +183,7 @@ def test_model_execution_wiring_with_fake_backend(monkeypatch, tmp_path):
     assert result["model_settings"] == {"id": "test-only"}
     assert result["pipeline_settings"] == {
         "preserve_map_evidence": False, "source_grounded_final": False,
-        "balanced_source_final": False,
+        "balanced_source_final": False, "source_sentence_final": False,
     }
     assert result["dataset_sha256"] == dataset_hash(DATASET)
 
@@ -192,7 +194,7 @@ def test_model_execution_wiring_with_fake_backend(monkeypatch, tmp_path):
     trial = read_json(trial_file)
     assert trial["pipeline_settings"] == {
         "preserve_map_evidence": True, "source_grounded_final": False,
-        "balanced_source_final": False,
+        "balanced_source_final": False, "source_sentence_final": False,
     }
     assert len(trial["results"]) == 5
     assert fake_service.map_trial_flags == [False] * 5 + [True] * 5
@@ -206,7 +208,7 @@ def test_model_execution_wiring_with_fake_backend(monkeypatch, tmp_path):
     final = read_json(final_file)
     assert final["pipeline_settings"] == {
         "preserve_map_evidence": True, "source_grounded_final": True,
-        "balanced_source_final": False,
+        "balanced_source_final": False, "source_sentence_final": False,
     }
     assert len(final["results"]) == 5
     assert fake_service.final_trial_flags == [False] * 10 + [True] * 5
@@ -221,10 +223,25 @@ def test_model_execution_wiring_with_fake_backend(monkeypatch, tmp_path):
     v4 = read_json(v4_file)
     assert v4["pipeline_settings"] == {
         "preserve_map_evidence": True, "source_grounded_final": True,
-        "balanced_source_final": True,
+        "balanced_source_final": True, "source_sentence_final": False,
     }
     assert len(v4["results"]) == 5
     assert fake_service.balanced_trial_flags == [False] * 15 + [True] * 5
+    assert fake_service.source_sentence_flags == [False] * 20
+
+    v5_file = tmp_path / "source_sentence_trial.json"
+    asyncio.run(execute_async(
+        DATASET, v5_file, ["medium"], "dev",
+        preserve_map_evidence=True, source_grounded_final=True,
+        balanced_source_final=True, source_sentence_final=True,
+    ))
+    v5 = read_json(v5_file)
+    assert v5["pipeline_settings"] == {
+        "preserve_map_evidence": True, "source_grounded_final": True,
+        "balanced_source_final": True, "source_sentence_final": True,
+    }
+    assert len(v5["results"]) == 5
+    assert fake_service.source_sentence_flags == [False] * 20 + [True] * 5
 
 
 def test_repetition_diagnostics_distinguish_repeated_word_sequences():

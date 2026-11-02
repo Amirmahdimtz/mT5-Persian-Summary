@@ -111,11 +111,12 @@ def lead_prose_budget_preflight(
 def reference_quote_budget_floor(
     facts: list[dict[str, Any]], count_tokens: Any, max_tokens: int,
 ) -> dict[str, Any]:
-    """Dev-only feasibility lower bound; NOT a runtime selection strategy.
+    """Dev-only exact source-span token proxy; NOT a runtime strategy.
 
     The reference source_quote strings are benchmark labels that may be
-    incomplete sentences. They must never feed the service, generation
-    prompt, ranker, or production API.
+    incomplete sentences. This is NOT a mathematical lower bound on
+    the tokens a faithful paraphrase could need. These spans must never
+    feed the service, generation prompt, ranker, or production API.
     """
     if type(max_tokens) is not int or max_tokens < 1:
         raise BenchmarkInputError("invalid reference quote budget")
@@ -138,7 +139,7 @@ def reference_quote_budget_floor(
         "final_medium_token_budget": max_tokens,
         "notes": (
             "Reference quotes are benchmark-only partial source spans. "
-            "Their token count is a feasibility lower bound, not a valid "
+            "Their token cost is a source-span proxy, not a valid "
             "summary, a runtime selector, or an acceptable generated target."
         ),
     }
@@ -302,7 +303,7 @@ async def execute_async(
             "only models source-quote selection and exact final token fit; it "
             "does not prove model output, semantic fidelity, coverage, or safety. "
             "The optional reference quote floor uses incomplete, benchmark-only "
-            "source spans as a token feasibility lower bound and must NEVER "
+            "source spans as a token cost proxy and must NEVER "
             "drive runtime selection. No raw source or generated text is exported."
         ),
     })
@@ -323,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--preview-reference-floor", action="store_true",
-        help="Dev-only token feasibility lower bound for pinned source quotes; no model calls",
+        help="Dev-only token count of pinned source spans; no model calls",
     )
     args = parser.parse_args(argv)
     try:

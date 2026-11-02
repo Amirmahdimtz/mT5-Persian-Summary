@@ -44,11 +44,11 @@ class LongTextSummarizationService:
     MAX_MODEL_CALLS = 128
     _LENGTH_FRACTIONS = {"short": (1, 3), "medium": (2, 3), "long": (3, 3)}
     _MAP_EVIDENCE_LINES = 3
-    _BULLET = re.compile(r"^[-*•][ \\t]+(.+)$")
-    _FIRST_SENTENCE = re.compile(r"(?<=[.!?؟؛])[ \\t]+")
+    _BULLET = re.compile(r"^[-*•][ \t]+(.+)$")
+    _FIRST_SENTENCE = re.compile(r"(?<=[.!?؟؛])[ \t]+")
     # Generic Persian obligation/decision signals, not benchmark fact IDs.
     _SALIENT = re.compile(r"باید|نباید|الزام|ممنوع|ضروری|موظف|نساز|نکن|تصمیم")
-    _DETAIL = re.compile(r"[@`\\d۰-۹]")
+    _DETAIL = re.compile(r"[@`\d۰-۹]")
 
     def __init__(
         self, text_chunking_service: TextChunkingService, model_provider: Mt5ModelProvider
@@ -95,7 +95,7 @@ class LongTextSummarizationService:
         for sentence in self._evidence_lines(source):
             if sentence in current:
                 continue
-            candidate = current + "\\n" + sentence
+            candidate = current + "\n" + sentence
             if len(candidate) > self._provider.max_input_characters:
                 continue
             if await asyncio.to_thread(

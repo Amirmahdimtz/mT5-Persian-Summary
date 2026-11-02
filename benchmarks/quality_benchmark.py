@@ -331,6 +331,10 @@ async def execute_async(
         "dataset_sha256": dataset_hash(dataset_path), "dataset_version": dataset["version"],
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "python": platform.python_version(), "platform": platform.platform(),
+        "inference_mode": (
+            "source_sentence_only_no_model_generate"
+            if source_sentence_final else "mt5_generate"
+        ),
         "pipeline_settings": {
             "preserve_map_evidence": preserve_map_evidence,
             "source_grounded_final": source_grounded_final,

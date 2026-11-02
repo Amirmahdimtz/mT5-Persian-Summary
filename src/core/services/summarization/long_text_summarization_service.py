@@ -51,6 +51,13 @@ class LongTextSummarizationService:
     _ACTION = re.compile(r"نساز|نکن|تصمیم")
     _CODE = re.compile(r"[@`]")
     _DETAIL = re.compile(r"[/\d۰-۹A-Z]")
+    _HEADING = re.compile(r"^(#{1,6})[ \t]+(.+)$")
+    _EXCLUDED_SECTION = re.compile(
+        r"خارج\s+از\s+(?:محدوده|دامنه)|عدم\s+پشتیبانی|پشتیبانی\s+نشده"
+        r"|غیرقابل\s+پشتیبانی|out[\s-]+of[\s-]+scope|not\s+supported"
+        r"|non[\s-]+goals|excluded",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self, text_chunking_service: TextChunkingService, model_provider: Mt5ModelProvider
@@ -73,12 +80,29 @@ class LongTextSummarizationService:
         """
         ranked: list[tuple[int, int, int, str]] = []
         fenced = False
+        # Keep Markdown section scope for bullets within this chunk.
+        # An exclusion bullet without its heading is unsafe to interpret,
+        # so this is a guarded experiment, not general PDF/DOCX coverage.
+        sections: list[tuple[int, bool]] = []
         for index, raw in enumerate(chunk.splitlines()):
             line = raw.strip()
             if line.startswith("```"):
                 fenced = not fenced
                 continue
             if fenced:
+                continue
+            heading = cls._HEADING.match(line)
+            if heading is not None:
+                level = len(heading.group(1))
+                while sections and sections[-1][0] >= level:
+                    sections.pop()
+                excluded = (
+                    bool(sections and sections[-1][1])
+                    or bool(cls._EXCLUDED_SECTION.search(heading.group(2)))
+                )
+                sections.append((level, excluded))
+                continue
+            if sections and sections[-1][1]:
                 continue
             match = cls._BULLET.match(line)
             if match is None:

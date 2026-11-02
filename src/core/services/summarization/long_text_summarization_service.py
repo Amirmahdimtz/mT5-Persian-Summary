@@ -56,7 +56,7 @@ class LongTextSummarizationService:
         r"خارج\s+از\s+(?:محدوده|دامنه)|عدم\s+پشتیبانی|پشتیبانی\s+نشده"
         r"|غیرقابل\s+پشتیبانی|out[\s-]+of[\s-]+scope|not\s+supported"
         r"|non[\s-]+goals|excluded|backlog|نه\s+بخشی\s+از"
-        r"|فاز\s+دوم|برنامه(?:‌|\s)*های\s+آینده|امکانات\s+آینده"
+        r"|برنامه(?:‌|\s)*های\s+آینده|امکانات\s+آینده"
         r"|future\s+work|planned\s+features|post[\s-]*mvp",
         re.IGNORECASE,
     )

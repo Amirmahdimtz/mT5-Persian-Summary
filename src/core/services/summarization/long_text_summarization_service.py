@@ -122,6 +122,44 @@ class LongTextSummarizationService:
         chosen = sorted(ranked)[:cls._MAP_EVIDENCE_LINES]
         return [item[3] for item in sorted(chosen, key=lambda item: item[2])]
 
+    @classmethod
+    def _excluded_original_clauses(cls, text: str) -> set[str]:
+        """Filter original-source exclusion bullets even across chunk splits.
+
+        This final-output check operates on the full original document,
+        so a heading separated from its bullet by chunking is still honored.
+        """
+        sections: list[tuple[int, bool]] = []
+        fenced = False
+        excluded: set[str] = set()
+        for raw in text.splitlines():
+            line = raw.strip()
+            if line.startswith("```"):
+                fenced = not fenced
+                continue
+            if fenced:
+                continue
+            heading = cls._HEADING.match(line)
+            if heading is not None:
+                level = len(heading.group(1))
+                while sections and sections[-1][0] >= level:
+                    sections.pop()
+                sections.append((
+                    level,
+                    bool(sections and sections[-1][1])
+                    or bool(cls._EXCLUDED_SECTION.search(heading.group(2))),
+                ))
+                continue
+            if not sections or not sections[-1][1]:
+                continue
+            bullet = cls._BULLET.match(line)
+            if bullet is None:
+                continue
+            sentence = cls._FIRST_SENTENCE.split(bullet.group(1), maxsplit=1)[0].strip()
+            if sentence:
+                excluded.add(sentence)
+        return excluded
+
     async def _augment_map_async(self, source: str, summary: str) -> str:
         """Retain only exact source excerpts if the intermediate cap permits."""
         current = summary
@@ -177,6 +215,9 @@ class LongTextSummarizationService:
 
         calls = 0
         first_level_source_evidence: list[str] = []
+        excluded_original_clauses = (
+            self._excluded_original_clauses(current) if source_grounded_final else set()
+        )
 
         async def infer(value: str, limit: int) -> str:
             nonlocal calls
@@ -225,7 +266,11 @@ class LongTextSummarizationService:
                         # Only collect excerpts really retained in the first
                         # Map result, and sourced from original input.
                         for sentence in self._evidence_lines(chunk):
-                            if sentence in part and sentence not in first_level_source_evidence:
+                            if (
+                                sentence in part
+                                and sentence not in first_level_source_evidence
+                                and sentence not in excluded_original_clauses
+                            ):
                                 first_level_source_evidence.append(sentence)
                 parts.append(part)
             merged = "\n\n".join(parts)

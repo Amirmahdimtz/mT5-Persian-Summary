@@ -429,3 +429,36 @@ $env:env_type = 'development'
 ```
 
 Only development cases may be run with the trial flags. Existing output files must not be overwritten; local run files are gitignored. Review the v3.1 candidate for *both* correct negative-scope handling and retention of the three required architecture rules. **Stage 10 In Progress; v3.1 not yet CPU-tested or human-reviewed.**
+
+## 13. Candidate v3.1 real outputs: second future-scope inversion, and v3.2 safeguard (2026-11-02)
+
+The user supplied actual `local_stage10_project_dev_candidate_v3_1.json` and the paired v3-v3.1 comparison after generating a review template locally. Both successful outputs use the frozen two-case development dataset SHA `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c`, identical pinned checkpoint/decoding and `source_grounded_final=true`. The comparator reports **2 paired cases, 1 changed**, and still marks semantic quality `NOT_REVIEWED`. The uploaded review template was not supplied, and no independent human annotation was performed.
+
+| Development case | Observed v3.1 result | Preliminary fact coverage | Interpretation |
+| --- | --- | --- | --- |
+| `real_architecture_guide` | **Identical** to v3, 294 characters and 79/80 output tokens | **3/3** required architecture rules present | Critical source requirements remain visible; some excerpt fragmentation persists |
+| `real_mvp_plan` | Changed to 183 characters / 79 tokens | **0/3 complete** | Mentions TXT, DOCX and output length, but not PDF, multi-file or eight stages; final line independently lists OCR for scanned PDFs without future/backlog qualification |
+
+**Important new source finding:** the line `OCR برای PDFهای اسکن‌شده.` occurs verbatim under `## 9. فاز دوم (صرفاً Backlog، نه بخشی از هشت مرحله)` in the original `IMPLEMENTATION_PLAN.md`. It is explicitly **future work, not an available MVP feature**. Candidate v3.1 omitted the Backlog heading, presenting OCR as an unsupported current-looking capability. This is **another critical scope/polarity context loss**. The previous v3.1 patch only understood negative-scope headings such as `خارج از محدوده`, so it missed the distinct future-work heading. The numeric 3/6 coverage gate alone does **not** make this safe: **v3.1 remains NO-GO**.
+
+### Candidate v3.2 — general negative/future-section filtering
+
+The experimental source-grounded selector and the full-original-document exclusion scan now recognize `Backlog`, `فاز دوم`, `نه بخشی از`, future-work headings, and existing out-of-scope categories. This blocks standalone future-feature bullets, including across token-aware chunk boundaries, without embedding the term OCR or any benchmark source fact IDs into model logic. Two targeted tests cover a synthetic nested Backlog section and the real repository plan's future OCR bullet. The default HTTP/API path and production decoding remain unchanged; no new dependencies were introduced.
+
+The new heuristic is **not a complete semantic context system**: paraphrased future commitments, prose without Markdown headings, tables and headings outside the pattern may still be misinterpreted. It can also suppress legitimate information about plans; future Stage 10 work should investigate section-aware summaries with explicit context rather than relying only on exclusion. Real v3.2 output has not been generated and human fact review is still required.
+
+PowerShell in the same project root:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_final_evidence.py tests/test_stage10_map_evidence.py tests/test_long_text_summarization_service.py
+.\.venv\Scripts\python.exe -m pytest -q
+
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json run --split dev --lengths medium --preserve-map-evidence --source-grounded-final --output local_stage10_project_dev_candidate_v3_2.json
+.\.venv\Scripts\python.exe -m benchmarks.stage10_compare --dataset local_quality_project_v1.json --baseline local_stage10_project_dev_candidate_v3_1.json --candidate local_stage10_project_dev_candidate_v3_2.json --output local_stage10_project_dev_compare_v3_1_v3_2.json
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json review-template --runs local_stage10_project_dev_candidate_v3_2.json --output local_stage10_project_dev_review_v3_2.json
+```
+
+Do not overwrite prior local results. Once the new summaries are observed, assess all six immutable facts and any contradictory, scope-shifted or out-of-context claims, plus fluency. **Stage 10 In Progress; v3.2 NOT EVALUATED.**

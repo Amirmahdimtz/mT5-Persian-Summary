@@ -260,29 +260,62 @@ class LongTextSummarizationService:
 
     @classmethod
     def _source_sentence_candidates(cls, source: str) -> list[tuple[int, str]]:
-        """Bounded exact sentences from prose or Markdown positive-scope sections.
+        """Find complete source sentences across PDF layout-wrapped lines.
 
-        The selector never rewrites direction, negation, dates or numbers.
-        Complete punctuation-delimited sentences are required, including
-        when content comes from lists. This is not semantic entailment.
+        Rejoin physical lines only inside a single source paragraph or list
+        item. Preserve section/fence boundaries, source order and full clauses;
+        no generated facts or unbounded text expansion. The joined text is
+        whitespace-normalized, not guaranteed to be a byte-exact substring.
         """
         results: list[tuple[int, str]] = []
         seen: set[str] = set()
         scopes: list[tuple[int, bool]] = []
         fenced = False
         paragraph = 0
+        lines: list[str] = []
+
+        def flush_paragraph() -> bool:
+            if not lines:
+                return False
+            joined = " ".join(lines)
+            lines.clear()
+            for sentence in cls._FIRST_SENTENCE.split(joined):
+                value = sentence.strip()
+                if (not value or value[-1] not in ".!?؟؛" or
+                        not 12 <= len(value) <= 350 or
+                        not re.search(r"[\u0600-\u06ff]", value) or
+                        value in seen):
+                    continue
+                seen.add(value)
+                results.append((paragraph, value))
+                if len(results) >= cls._MAX_SOURCE_SENTENCES:
+                    return True
+            return False
+
         for raw in source.splitlines():
             line = raw.strip()
             if not line:
+                if flush_paragraph():
+                    return results
                 paragraph += 1
                 continue
             if line.startswith("```"):
+                if flush_paragraph():
+                    return results
                 fenced = not fenced
+                paragraph += 1
                 continue
-            if fenced or line.startswith(("|", "~~~")):
+            if fenced:
+                continue
+            if line.startswith(("|", "~~~")):
+                if flush_paragraph():
+                    return results
+                paragraph += 1
                 continue
             heading = cls._HEADING.match(line)
             if heading:
+                if flush_paragraph():
+                    return results
                 level = len(heading.group(1))
                 while scopes and scopes[-1][0] >= level:
                     scopes.pop()
@@ -294,26 +327,24 @@ class LongTextSummarizationService:
                 paragraph += 1
                 continue
             if scopes and scopes[-1][1]:
+                if flush_paragraph():
+                    return results
                 continue
             bullet = cls._BULLET.match(line)
             if bullet:
-                line = bullet.group(1)
+                if flush_paragraph():
+                    return results
                 paragraph += 1
+                line = bullet.group(1)
             elif line.startswith(">"):
                 line = line.lstrip(">").strip()
             if line.startswith("#"):
-                continue
-            for sentence in cls._FIRST_SENTENCE.split(line):
-                value = sentence.strip()
-                if (not value or value[-1] not in ".!?؟؛" or
-                        len(value) > 350 or len(value) < 12 or
-                        not re.search(r"[\u0600-\u06ff]", value) or
-                        value in seen):
-                    continue
-                seen.add(value)
-                results.append((paragraph, value))
-                if len(results) >= cls._MAX_SOURCE_SENTENCES:
+                if flush_paragraph():
                     return results
+                continue
+            if line:
+                lines.append(line)
+        flush_paragraph()
         return results
 
     async def _source_sentence_final_async(

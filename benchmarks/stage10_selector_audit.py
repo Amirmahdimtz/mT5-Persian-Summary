@@ -65,9 +65,55 @@ def lead_prose_candidates(source: str) -> list[str]:
     return candidates[:32]
 
 
+_LEAD_NUMBER = re.compile(r"\b(?:یک|دو|سه|چهار|پنج|شش|هفت|هشت|نه|ده|[0-9۰-۹]+)\b")
+_LEAD_TECH = re.compile(r"`[^`]+`|(?<!\w)[A-Z]{2,}(?!\w)")
+_LEAD_CAPABILITY = re.compile(r"پشتیبانی|می‌توان|می‌شود|می‌شوند|بتواند|توانایی|support", re.IGNORECASE)
+
+
+def lead_prose_budget_preflight(
+    candidates: list[str], count_tokens: Any, max_tokens: int,
+) -> tuple[list[str], int]:
+    """Rank generic introductory statements; keep whole source text and cap.
+
+    Diagnostic-only; selection does not use the benchmark manifest or facts.
+    Count the concatenated exact candidate after each addition, including
+    tokenizer special tokens. Never assume per-sentence counts are additive.
+    """
+    if type(max_tokens) is not int or max_tokens < 1:
+        raise BenchmarkInputError("invalid output token budget")
+    ranked: list[tuple[int, int, str]] = []
+    for index, sentence in enumerate(candidates):
+        tech = len(_LEAD_TECH.findall(sentence))
+        score = (
+            min(tech, 3) * 2
+            + 3 * bool(_LEAD_NUMBER.search(sentence))
+            + 3 * bool(_LEAD_CAPABILITY.search(sentence))
+        )
+        if score > 0:
+            ranked.append((-score, index, sentence))
+    ranked.sort()
+    chosen: list[tuple[int, str]] = []
+    tokens = 0
+    for _score, index, sentence in ranked:
+        if len(chosen) >= 3:
+            break
+        proposed = sorted([*chosen, (index, sentence)])
+        full_text = "\n".join(text for _, text in proposed)
+        count = count_tokens(full_text)
+        if type(count) is not int or count < 1:
+            raise BenchmarkInputError("tokenizer returned an invalid token count")
+        if count <= max_tokens:
+            chosen = proposed
+            tokens = count
+    return [value for _, value in chosen], tokens
+
+
 def audit_case(case: dict[str, Any], final_text: str, chunks: list[str],
                selector: Any, excluded: set[str],
-               lead_prose: list[str] | None = None) -> dict[str, Any]:
+               lead_prose: list[str] | None = None,
+               budgeted_lead: list[str] | None = None,
+               budgeted_token_count: int | None = None,
+               final_budget: int | None = None) -> dict[str, Any]:
     """Report exact-match fact eligibility, never excerpts or generated text."""
     selected = [line for chunk in chunks for line in selector(chunk)]
     eligible = list(dict.fromkeys(line for line in selected if line not in excluded))
@@ -84,6 +130,8 @@ def audit_case(case: dict[str, Any], final_text: str, chunks: list[str],
         }
         if lead_prose is not None:
             row["found_in_lead_prose_preview"] = any(quote in line for line in lead_prose)
+        if budgeted_lead is not None:
+            row["found_in_budgeted_lead_preflight"] = any(quote in line for line in budgeted_lead)
         facts.append(row)
     result = {
         "case_id": case["id"],
@@ -95,15 +143,24 @@ def audit_case(case: dict[str, Any], final_text: str, chunks: list[str],
     }
     if lead_prose is not None:
         result["lead_prose_candidate_count"] = len(lead_prose)
+    if budgeted_lead is not None:
+        result["lead_budget_preflight"] = {
+            "selected_source_sentence_count": len(budgeted_lead),
+            "tokens_including_specials": budgeted_token_count,
+            "final_medium_token_budget": final_budget,
+        }
     return result
 
 
 async def execute_async(
     dataset_path: Path, runs_path: Path, output: Path,
     *, preview_lead_prose: bool = False,
+    preview_lead_budget: bool = False,
 ) -> None:
-    if type(preview_lead_prose) is not bool:
-        raise BenchmarkInputError("preview_lead_prose must be boolean")
+    if type(preview_lead_prose) is not bool or type(preview_lead_budget) is not bool:
+        raise BenchmarkInputError("preview flags must be booleans")
+    if preview_lead_budget and not preview_lead_prose:
+        raise BenchmarkInputError("lead budget preflight requires lead prose preview")
     if output.exists():
         raise BenchmarkInputError("output already exists; choose a new versioned name")
     dataset = read_json(dataset_path)
@@ -166,13 +223,24 @@ async def execute_async(
         chunks = await asyncio.to_thread(service._chunker.chunk, source)
         excluded = service._excluded_original_clauses(source)
         prose = lead_prose_candidates(source) if preview_lead_prose else None
+        planned = None
+        planned_tokens = None
+        budget = None
+        if preview_lead_budget and prose is not None:
+            budget = service.output_token_budget("medium")
+            planned, planned_tokens = await asyncio.to_thread(
+                lead_prose_budget_preflight, prose, provider.count_input_tokens, budget
+            )
         audits.append(audit_case(
             case, summary, chunks, service._evidence_lines, excluded,
             lead_prose=prose,
+            budgeted_lead=planned, budgeted_token_count=planned_tokens,
+            final_budget=budget,
         ))
     write_json(output, {
         "stage": "stage10_offline_selector_audit",
         "preview_lead_prose": preview_lead_prose,
+        "preview_lead_budget": preview_lead_budget,
         "dataset_sha256": digest,
         "runs_sha256": runs_hash(run),
         "inference_calls": 0,
@@ -182,7 +250,10 @@ async def execute_async(
             "Exact source-quote presence is lexical, not semantic coverage. "
             "The audit examines candidate clauses before model inference and before "
             "intermediate token-cap insertion; it does not prove which clauses "
-            "were present in real Map outputs. No raw source or generated text is exported."
+            "were present in real Map outputs. The optional lead budget preflight "
+            "only models source-quote selection and exact final token fit; it "
+            "does not prove model output, semantic fidelity, coverage, or safety. "
+            "No raw source or generated text is exported."
         ),
     })
 
@@ -196,11 +267,16 @@ def main(argv: list[str] | None = None) -> int:
         "--preview-lead-prose", action="store_true",
         help="Audit introductory prose eligibility without changing inference or service behavior",
     )
+    parser.add_argument(
+        "--preview-lead-budget", action="store_true",
+        help="Estimate 80-token final-tier lead evidence using the real tokenizer",
+    )
     args = parser.parse_args(argv)
     try:
         asyncio.run(execute_async(
             args.dataset, args.runs, args.output,
             preview_lead_prose=args.preview_lead_prose,
+            preview_lead_budget=args.preview_lead_budget,
         ))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         parser.exit(2, f"Stage 10 selector audit failed: {type(exc).__name__}: {exc}\n")

@@ -738,3 +738,42 @@ Inspection of `LongTextSummarizationService.summarize_async`: the new lead-prose
 ```
 
 Independently review **each** fact and atomic claim across all 15 results, especially the pollution and software-expense direction inversions and whether `هشدار داد` is an unsupported source attribution; **do not score an unreviewed template**. Once actually annotated, use `score --runs ... --reviews ...` to calculate authoritative fixed-gate diagnostic metrics. Stage 10 remains **In Progress / Blocked on quality**, with no new model or API implementation in this documentation update.
+
+## 22. Candidate v5 source-sentence-only development ablation (2026-11-02)
+
+**Reason:** the Stage 10 v4 run on the five frozen synthetic Development sources reproduced 2 critical direction inversions, roughly 3/19 medium facts and 0/5 distinct length-tier outputs. Four short sources skip the v4 hierarchy-based postprocessing; the long repeated plain-prose case has no Markdown evidence. More tweaks to the Markdown intro ranker are not justified. Candidate v5 tests the **different, explicitly extractive** hypothesis that preserving complete, unmodified source sentences avoids invented direction/number changes on direct and long prose.
+
+### Review provenance (no benchmark fact injection)
+
+An **assistant-prepared** review draft of all 15 existing v4 synthetic outputs (5 Development sources × 3 tiers) is provided separately to the user as `local_stage10_synthetic_dev_review_v4_assistant_draft.json`. It contains a proposed 3/19 covered, 14/19 omitted and 2/19 distorted label distribution for **each medium source**, plus manually segmented claims. The alert verb `هشدار داد` is treated as an unsupported attribution **provisionally**, subject to independent adjudication. The draft's hash refers to the unchanged v4 run; it is **not** a human-signed-off assessment. Never feed its fact labels or exact source quotes into model prompts, selectors or heuristics.
+
+### Implementation and boundaries
+
+`LongTextSummarizationService.summarize_async(..., source_sentence_final=True)` is opt-in, requires `preserve_map_evidence`, `source_grounded_final` and `balanced_source_final`, and stays **False** for normal service and HTTP API calls. Only `benchmarks.quality_benchmark` accepts the CLI switch `--source-sentence-final`, which is restricted to `--split dev`. Both reserved holdouts remain inaccessible through the experimental runner.
+
+Before invoking mT5, the v5 branch selects a bounded set of **complete verbatim sentences from the original normalized input** (ordinary Persian prose or positive-scope Markdown lists). It skips code fences, headings, table lines and excluded/future-scope sections; deduplicates repetitions; prefers generally informative source sentences and paragraph diversity, retains original source order; uses the DI provider's exact tokenizer for each candidate and the combined output and observes fixed short/medium/long tier ceilings. The maximum emitted sentence count is **1 / 3 / 6** for short/medium/long. It performs **no mT5 generate calls** when this experiment is enabled; if no complete source sentence fits, it fails closed instead of falling back to possibly inverted generation. The raw Benchmark JSON explicitly marks `inference_mode=source_sentence_only_no_model_generate` so these outputs cannot be mistaken for mT5-model improvements.
+
+This is a **source-extractive safety/coverage ablation**, not a general-purpose semantic verifier or an acceptable replacement for the user's requested abstractive summarizer. It may omit later sections because at most 64 unique candidates are inspected, may break context across sentences, may over-prefer numbered details and is not guaranteed to distinguish tiers on very short originals. Exact source quotation does not guarantee faithful implication when separated from earlier negative or hypothetical context. Stage 10 acceptance and eventual Production rollout require independent review on varied real TXT/PDF/DOCX, broader source coverage, cost/RAM analysis and working mT5 fallback policy. No new dependencies, changes to checkpoint/generation configuration, new API endpoints or default behavior.
+
+### Run targeted and full tests on Windows
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_source_sentence_v5.py tests/test_quality_benchmark.py tests/test_stage10_compare.py tests/test_stage10_balanced_final.py tests/test_long_text_summarization_service.py
+.\.venv\Scripts\python.exe -m pytest -q
+```
+
+**After successful tests**, the next run is inference-free but tokenizes all Development sources using the pinned real tokenizer:
+
+```powershell
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset benchmarks/fixtures/quality_v1.json run --split dev --lengths short medium long --preserve-map-evidence --source-grounded-final --balanced-source-final --source-sentence-final --output local_stage10_synthetic_dev_candidate_v5_extract.json
+.\.venv\Scripts\python.exe -m benchmarks.stage10_compare --dataset benchmarks/fixtures/quality_v1.json --baseline local_stage10_synthetic_dev_candidate_v4.json --candidate local_stage10_synthetic_dev_candidate_v5_extract.json --output local_stage10_synthetic_dev_compare_v4_v5_extract.json
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset benchmarks/fixtures/quality_v1.json review-template --runs local_stage10_synthetic_dev_candidate_v5_extract.json --output local_stage10_synthetic_dev_review_v5_extract.json
+```
+
+Compare outputs against the immutable source and frozen 8/19, zero-distortion, <=12.5%-unsupported and >=3/5 tier gates. **Do not claim the gate passes without actual human review**; do not unlock holdout. Before any Production adoption, a mixed extraction/abstractive design must be proven to preserve semantics and maintain useful compression.
+
+**Verification honesty:** the last verified user-side suite is **386 passed, 2 deprecation warnings** on v4; new v5 source/test changes have **NOT** been executed in that environment. No claim of a passed v5 test or real-tokenizer trial is made. Stage 10 remains **In Progress / Quality Blocked**.

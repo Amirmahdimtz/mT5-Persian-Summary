@@ -103,3 +103,25 @@ def test_map_trial_provenance_is_explicit_and_type_checked():
     candidate["pipeline_settings"]["preserve_map_evidence"] = 1
     with pytest.raises(BenchmarkInputError, match="boolean"):
         compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
+
+
+def test_final_source_trial_metadata_records_one_changed_pipeline_variable():
+    dataset, baseline, candidate = pair()
+    baseline["pipeline_settings"] = {"preserve_map_evidence": True}
+    candidate["pipeline_settings"] = {
+        "preserve_map_evidence": True, "source_grounded_final": True
+    }
+    compared = compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
+    assert compared["baseline_source_grounded_final"] is None
+    assert compared["candidate_source_grounded_final"] is True
+    assert compared["baseline_preserve_map_evidence"] is True
+    assert compared["candidate_preserve_map_evidence"] is True
+
+    candidate["pipeline_settings"]["source_grounded_final"] = "true"
+    with pytest.raises(BenchmarkInputError, match="boolean"):
+        compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)
+    candidate["pipeline_settings"] = {
+        "preserve_map_evidence": False, "source_grounded_final": True
+    }
+    with pytest.raises(BenchmarkInputError, match="requires"):
+        compare_runs(dataset, dataset_hash(DATASET), baseline, candidate)

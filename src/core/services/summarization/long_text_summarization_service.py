@@ -58,6 +58,13 @@ class LongTextSummarizationService:
     _LEAD_TECH = re.compile(r"`[^`]+`|(?<!\w)[A-Z]{2,}(?!\w)")
     _MAX_LEAD_CANDIDATES = 32
     _MAX_LEAD_FINAL_SENTENCES = 3
+    _MAX_SOURCE_SENTENCES = 64
+    _SOURCE_SENTENCE_LIMITS = {"short": 1, "medium": 3, "long": 6}
+    _SOURCE_SIGNAL = re.compile(
+        r"افزایش|کاهش|برگزار|تعیین|تصمیم|توصیه|موظف|مسئول|"
+        r"اولویت|برنامه|امضا|توسعه|افتتاح|بازنگری|مرحله|"
+        r"اجرا|پشتیبانی|آموزش|آغاز|پایان"
+    )
     _HEADING = re.compile(r"^(#{1,6})[ \t]+(.+)$")
     _EXCLUDED_SECTION = re.compile(
         r"خارج\s+از\s+(?:محدوده|دامنه)|عدم\s+پشتیبانی|پشتیبانی\s+نشده"
@@ -251,6 +258,118 @@ class LongTextSummarizationService:
                 chosen = tentative
         return "\n".join(part for _, part in chosen) if chosen else None
 
+    @classmethod
+    def _source_sentence_candidates(cls, source: str) -> list[tuple[int, str]]:
+        """Bounded exact sentences from prose or Markdown positive-scope sections.
+
+        The selector never rewrites direction, negation, dates or numbers.
+        Complete punctuation-delimited sentences are required, including
+        when content comes from lists. This is not semantic entailment.
+        """
+        results: list[tuple[int, str]] = []
+        seen: set[str] = set()
+        scopes: list[tuple[int, bool]] = []
+        fenced = False
+        paragraph = 0
+        for raw in source.splitlines():
+            line = raw.strip()
+            if not line:
+                paragraph += 1
+                continue
+            if line.startswith("```"):
+                fenced = not fenced
+                continue
+            if fenced or line.startswith(("|", "~~~")):
+                continue
+            heading = cls._HEADING.match(line)
+            if heading:
+                level = len(heading.group(1))
+                while scopes and scopes[-1][0] >= level:
+                    scopes.pop()
+                scopes.append((
+                    level,
+                    bool(scopes and scopes[-1][1])
+                    or bool(cls._EXCLUDED_SECTION.search(heading.group(2))),
+                ))
+                paragraph += 1
+                continue
+            if scopes and scopes[-1][1]:
+                continue
+            bullet = cls._BULLET.match(line)
+            if bullet:
+                line = bullet.group(1)
+                paragraph += 1
+            elif line.startswith(">"):
+                line = line.lstrip(">").strip()
+            if line.startswith("#"):
+                continue
+            for sentence in cls._FIRST_SENTENCE.split(line):
+                value = sentence.strip()
+                if (not value or value[-1] not in ".!?؟؛" or
+                        len(value) > 350 or len(value) < 12 or
+                        not re.search(r"[\u0600-\u06ff]", value) or
+                        value in seen):
+                    continue
+                seen.add(value)
+                results.append((paragraph, value))
+                if len(results) >= cls._MAX_SOURCE_SENTENCES:
+                    return results
+        return results
+
+    async def _source_sentence_final_async(
+        self, original_source: str, summary_length: str, final_budget: int
+    ) -> str | None:
+        """v5 trial: evidence-only bounded final across direct and long inputs.
+
+        This is an explicit extractive alternative, NOT an mT5 decoding fix.
+        Exact source sentences are emitted unchanged and in source order.
+        """
+        candidates = self._source_sentence_candidates(original_source)
+        ranked: list[tuple[int, int, int, str]] = []
+        for position, (paragraph, sentence) in enumerate(candidates):
+            if len(sentence) > self._provider.max_input_characters:
+                continue
+            token_count = await asyncio.to_thread(
+                self._provider.count_input_tokens, sentence
+            )
+            if token_count < 1 or token_count > final_budget:
+                continue
+            score = (
+                3 * bool(self._SOURCE_SIGNAL.search(sentence))
+                + 2 * bool(self._LEAD_QUANTITY.search(sentence))
+                + bool(self._LEAD_TECH.search(sentence))
+                + bool(self._OBLIGATION.search(sentence))
+            )
+            ranked.append((score, position, paragraph, sentence))
+
+        chosen: list[tuple[int, int, str]] = []
+        count_limit = self._SOURCE_SENTENCE_LIMITS[summary_length]
+        used_paragraphs: set[int] = set()
+        while len(chosen) < count_limit:
+            eligible = sorted(
+                (entry for entry in ranked if entry[1] not in {x[0] for x in chosen}),
+                key=lambda item: (
+                    -(item[0] + (3 if item[2] not in used_paragraphs else 0)),
+                    item[1],
+                ),
+            )
+            accepted = None
+            for _score, position, paragraph, sentence in eligible:
+                tentative = sorted((*chosen, (position, paragraph, sentence)))
+                candidate = "\n".join(part for _, _, part in tentative)
+                if (len(candidate) <= self._provider.max_input_characters and
+                        await asyncio.to_thread(self._output_fits, candidate, final_budget)):
+                    accepted = (position, paragraph, sentence)
+                    break
+            if accepted is None:
+                break
+            chosen.append(accepted)
+            used_paragraphs.add(accepted[1])
+        return (
+            "\n".join(part for _, _, part in sorted(chosen))
+            if chosen else None
+        )
+
     async def _augment_map_async(self, source: str, summary: str) -> str:
         """Retain only exact source excerpts if the intermediate cap permits."""
         current = summary
@@ -291,16 +410,20 @@ class LongTextSummarizationService:
         *, preserve_map_evidence: bool = False,
         source_grounded_final: bool = False,
         balanced_source_final: bool = False,
+        source_sentence_final: bool = False,
     ) -> str:
         desired_budget = self.output_token_budget(summary_length)
         if any(type(flag) is not bool for flag in (
-            preserve_map_evidence, source_grounded_final, balanced_source_final
+            preserve_map_evidence, source_grounded_final,
+            balanced_source_final, source_sentence_final
         )):
             raise SummarizationInputError("evidence trial flags must be booleans")
         if source_grounded_final and not preserve_map_evidence:
             raise SummarizationInputError("source_grounded_final requires preserve_map_evidence")
         if balanced_source_final and not source_grounded_final:
             raise SummarizationInputError("balanced_source_final requires source_grounded_final")
+        if source_sentence_final and not balanced_source_final:
+            raise SummarizationInputError("source_sentence_final requires balanced_source_final")
         try:
             current = self._chunker.normalize(text)
         except ChunkingInputError as error:
@@ -312,6 +435,12 @@ class LongTextSummarizationService:
         calls = 0
         first_level_source_evidence: list[str] = []
         original_source = current
+        if source_sentence_final:
+            extractive = await self._source_sentence_final_async(
+                original_source, summary_length, desired_budget
+            )
+            if extractive is not None:
+                return extractive
         excluded_original_clauses = (
             self._excluded_original_clauses(current) if source_grounded_final else set()
         )

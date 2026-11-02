@@ -462,3 +462,47 @@ $env:env_type = 'development'
 ```
 
 Do not overwrite prior local results. Once the new summaries are observed, assess all six immutable facts and any contradictory, scope-shifted or out-of-context claims, plus fluency. **Stage 10 In Progress; v3.2 NOT EVALUATED.**
+
+## 14. Candidate v3.2 Windows results and no-inference selector eligibility audit (2026-11-02)
+
+### Real observations
+
+The user checked out commit `ed61e5770f526e642c89f48e933e4a2909e4564f` on Windows and reported:
+
+- `pip check`: **no broken requirements**; `compileall`: **no errors**.
+- Focused Stage 10 source-grounding tests: **39 passed**.
+- Full Python test suite: **360 passed, 2 nonblocking deprecation warnings (26.70s)**.
+- Real pinned CPU candidate v3.2 benchmark succeeded for the **two authentic Development Markdown documents only**, with the same dataset SHA-256 `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c`, checkpoint revision and decoder settings. Paired v3.1→v3.2 comparator: **2 pairs, 1 changed**, `semantic_review_status=NOT_REVIEWED`.
+
+| Dev document | v3.1 | v3.2 | Assistant preliminary source-grounded interpretation |
+| --- | --- | --- | --- |
+| `real_architecture_guide` | 294 chars / 79 tokens | **same exact text**, 294 chars / 79 tokens | **3/3 mandatory facts covered**, zero repeated four-grams, but still several raw excerpts with poor sentence closure |
+| `real_mvp_plan` | 183 chars / 79 tokens, final standalone future OCR clause | **157 chars / 69 tokens**, future OCR clause absent | **0/3 complete essential facts**: TXT/DOCX are mentioned but the combined supported-formats reference also requires PDF; no multi-file or eight-stage requirement. No obvious critical scope inversion in the new three lines |
+
+**Decision: v3.2 is not a Stage 10 quality GO.** Assistant preliminary exact-source fact assessment totals **3/6** required facts and the two observed outputs no longer contain standalone unsupported `.doc` / future OCR capability statements, but the MVP summary omits key subject matter, output is extractive rather than a coherent summary, and **no independent reviewer has approved the fact labels**. The frozen synthetic gates (8/19, zero direction/date/number inversions, distinct length tiers) have not been demonstrated by this trial; holdout untouched. Do not compare the 142.717s and 105.177s single CPU times to previous runs as reliable performance measurements.
+
+### Why repeat CPU inference is premature
+
+The source-grounded v3.2 fallback favors short original **Markdown bullet clauses with lexical obligation / code / number cues**, then fills a strict **80-token medium budget in original source order**. The fixed three MVP facts include high-level introductory **prose** (TXT/PDF/DOCX, multiple files and eight stages), which may never be offered to the bullet-only candidate selector. We should measure source-quote *eligibility* before trying another generation heuristic or changing the pinned dataset.
+
+### New dev-only selector audit: zero new model inferences
+
+`benchmarks.stage10_selector_audit` inspects the existing v3.2 run and original immutable Development dataset. It validates their dataset SHA, run split/length, checkpoint revision and decoder setting; resolves the existing tokenizer/chunker and actual source-selector through DI, then measures, for each immutable reference fact: whether the exact source quote occurs in original source, in any per-chunk selected clause, in an eligible clause after full-document exclusion filtering, or verbatim in the final v3.2 output. It also records the number of source chunks and selected/eligible clauses.
+
+**Limitations:** quote matching is **lexical, not a semantic fact label**; selected/eligible clause counts are a pre-insertion *upper bound*, **not proof that these clauses passed a generated Map summary's token cap** or reached the real Reduce. The audit intentionally does not run `summarize_async`, does not call mT5 `generate`, does not copy source quotes or generated summaries into its output JSON, does not touch holdouts, and refuses to overwrite existing files. Generated output files may still contain metadata about the user's local document and should remain local unless checked.
+
+Windows PowerShell after pulling:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_selector_audit.py
+.\.venv\Scripts\python.exe -m pytest -q
+
+.\.venv\Scripts\python.exe -m benchmarks.stage10_selector_audit --dataset local_quality_project_v1.json --runs local_stage10_project_dev_candidate_v3_2.json --output local_stage10_selector_audit_v3_2.json
+```
+
+Review `local_stage10_selector_audit_v3_2.json` before any new candidate code. If source quotes are absent from every eligible clause, the appropriate next controlled change is **safe, section-aware extraction from introductory prose**, not another decoder or Reduce parameter adjustment. If quotes are eligible but remain absent in final output, inspect token-cap and coverage allocation. No release claim follows from this diagnostic.
+
+**Verification at commit:** new offline selector audit was tested with a fake DI/model, **5 passed (0.08s)**, Python compilation succeeded. **Full Windows tests and actual tokenizer audit have NOT been run after this addition**. Stage 10 **In Progress**, Candidate v3.2 not production-certified.

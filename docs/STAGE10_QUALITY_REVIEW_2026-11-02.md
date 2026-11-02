@@ -69,14 +69,22 @@ Inspection performed directly on the original files in this assessment, independ
 
 ## Reproducible next Development-only evaluation on distinct repository documents
 
-The existing benchmark supports two distinct Development project documents. On the user's Windows clone after `git pull --ff-only origin main` and `$env:env_type = 'development'`:
+The existing benchmark supports two distinct Development project documents. **Important reproducibility constraint:** `benchmarks/fixtures/real_project_documents_v1.json` points to an older SHA of the reserved `docs/POST_MVP_DEVELOPMENT_PLAN.md`; that file subsequently changed. Therefore fresh `project_document_dataset` preparation fails closed before any model run. **Do not update the pinned holdout SHA or use a different holdout file just to bypass this safeguard.** Reuse the **previously verified** local `local_quality_project_v1.json` dataset (documented in `STAGE10_EXPERIMENT_V1.md` section 2.2), and verify its SHA-256 `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c` before running. If the original dataset is missing, that evaluation cannot currently be reproduced without an explicitly approved, dev-only dataset workflow. On the user's Windows clone after `git pull --ff-only origin main` and `$env:env_type = 'development'`:
 
 ```powershell
-.\.venv\Scripts\python.exe -m benchmarks.project_document_dataset --output local_stage10_project_quality_v2.json
-.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_stage10_project_quality_v2.json run --split dev --lengths short medium long --output local_stage10_project_default_v2.json
-.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_stage10_project_quality_v2.json run --split dev --lengths short medium long --preserve-map-evidence --source-grounded-final --balanced-source-final --source-sentence-final --output local_stage10_project_extract_v5_v2.json
-.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_stage10_project_quality_v2.json review-template --runs local_stage10_project_default_v2.json --output local_stage10_project_default_review_v2.json
-.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_stage10_project_quality_v2.json review-template --runs local_stage10_project_extract_v5_v2.json --output local_stage10_project_extract_review_v2.json
+$dataset = ".\local_quality_project_v1.json"
+if (-not (Test-Path -LiteralPath $dataset -PathType Leaf)) {
+    throw "Existing pinned dataset not found. Do not regenerate the changed holdout source."
+}
+$expected = "fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c"
+$actual = (Get-FileHash -LiteralPath $dataset -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actual -ne $expected) {
+    throw "Pinned project dataset hash mismatch; stop before running the benchmark."
+}
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json run --split dev --lengths short medium long --output local_stage10_project_default_v2.json
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json run --split dev --lengths short medium long --preserve-map-evidence --source-grounded-final --balanced-source-final --source-sentence-final --output local_stage10_project_extract_v5_v2.json
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json review-template --runs local_stage10_project_default_v2.json --output local_stage10_project_default_review_v2.json
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset local_quality_project_v1.json review-template --runs local_stage10_project_extract_v5_v2.json --output local_stage10_project_extract_review_v2.json
 ```
 
 The output review templates are **unreviewed**. Do **not** run `score` until an independent reviewer has labeled each fact and *all* atomic claims with exact source evidence. The dataset contains a holdout case in its manifest, but both `run` calls are strictly `--split dev`; this does not unseal the holdout. The local JSON files may contain sensitive source-derived summaries and must stay uncommitted.

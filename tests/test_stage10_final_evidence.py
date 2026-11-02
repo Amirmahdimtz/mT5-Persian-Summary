@@ -167,3 +167,40 @@ def test_english_out_of_scope_section_is_excluded_as_well():
     assert LongTextSummarizationService._evidence_lines(text) == [
         "API باید فعال شود."
     ]
+
+
+def test_future_backlog_heading_does_not_present_planned_feature_as_live():
+    source = (
+        "## قابلیت‌های کنونی\n"
+        "- این قابلیت باید در سرویس فعال باشد.\n"
+        "## 9. فاز دوم (صرفاً Backlog، نه بخشی از هشت مرحله)\n"
+        "- OCR برای PDFهای اسکن‌شده.\n"
+        "- Storage و پایگاه داده در آینده طراحی می‌شوند.\n"
+        "### قابلیت‌های پیشنهادی\n"
+        "- GPU Inference و پردازش Batch.\n"
+        "## تعهدهای نسخه اول\n"
+        "- ثبت خطا ضروری است.\n"
+    )
+    selected = LongTextSummarizationService._evidence_lines(source)
+    assert "این قابلیت باید در سرویس فعال باشد." in selected
+    assert "ثبت خطا ضروری است." in selected
+    assert all("OCR" not in line and "Storage" not in line and "GPU" not in line
+               for line in selected)
+    excluded = LongTextSummarizationService._excluded_original_clauses(source)
+    assert "OCR برای PDFهای اسکن‌شده." in excluded
+    assert "GPU Inference و پردازش Batch." in excluded
+    assert "ثبت خطا ضروری است." not in excluded
+
+
+def test_original_mvp_plan_backlog_clause_remains_excluded_across_chunks():
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "IMPLEMENTATION_PLAN.md").read_text(
+        encoding="utf-8"
+    )
+    assert "فاز دوم (صرفاً Backlog" in source
+    forbidden = "OCR برای PDFهای اسکن‌شده."
+    assert forbidden in LongTextSummarizationService._excluded_original_clauses(source)
+    # A chunk which lacks the preceding heading could still select the
+    # sentence; full-source exclusion must prevent final scope inversion.
+    assert forbidden in LongTextSummarizationService._evidence_lines("- " + forbidden)

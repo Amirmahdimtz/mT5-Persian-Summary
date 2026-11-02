@@ -777,3 +777,15 @@ $env:env_type = 'development'
 Compare outputs against the immutable source and frozen 8/19, zero-distortion, <=12.5%-unsupported and >=3/5 tier gates. **Do not claim the gate passes without actual human review**; do not unlock holdout. Before any Production adoption, a mixed extraction/abstractive design must be proven to preserve semantics and maintain useful compression.
 
 **Verification honesty:** the last verified user-side suite is **386 passed, 2 deprecation warnings** on v4; new v5 source/test changes have **NOT** been executed in that environment. No claim of a passed v5 test or real-tokenizer trial is made. Stage 10 remains **In Progress / Quality Blocked**.
+
+## 23. Windows v5 source-extractive run confirmed; raw review pending (2026-11-02)
+
+The user pulled `77bc1b1548cb9eb6656c9260027177b8a32c1b52` onto the Windows main checkout and verified: `pip check` **no broken requirements**; `python -m compileall -q src benchmarks tests` completed cleanly; focused pytest bundle **80 passed in 4.86s**; full pytest suite **398 passed, 2 pre-existing deprecation warnings in 24.94s**. No failing regression was reported.
+
+Actual Development-only `quality_benchmark run` completed with the existing immutable CC0 synthetic fixture (`benchmarks/fixtures/quality_v1.json`), all three tiers (`short medium long`) and all four flags (`--preserve-map-evidence --source-grounded-final --balanced-source-final --source-sentence-final`). The user obtained `local_stage10_synthetic_dev_candidate_v5_extract.json`. The corresponding v4→v5 comparison command completed: **15 paired cases and 15 changed raw outputs**, `semantic quality NOT REVIEWED`; output saved to `local_stage10_synthetic_dev_compare_v4_v5_extract.json`.
+
+**Evidence limit:** the user shared the terminal log, but has **not uploaded either v5 JSON artifact in this turn**. Therefore the assistant cannot inspect the actual 15 v5 summaries, token counts, source-quote coverage, direction/number consistency, or tier differences; no v5 fact-coverage, unsupported-claim, or quality gate can truthfully be scored yet. Different strings do not imply better quality. The v5 flag is an **explicit source-only, no-mT5-generate extractive trial** and must never be described as a stronger mT5 model. The earlier v4 synthetic gates remain failed.
+
+**Next:** upload both `local_stage10_synthetic_dev_candidate_v5_extract.json` and `local_stage10_synthetic_dev_compare_v4_v5_extract.json`. Review against the *unchanged* synthetic Development source/atomic facts and frozen Stage 9 criteria: >=8/19 unique medium facts, zero critical polarity/number/date/person inversions and 0/19 distorted facts, <=12.5% independently reviewed unsupported claims, >=3/5 distinct short versus long texts, and 0 API regressions. An independent human review and representative TXT/PDF/DOCX evidence remain required before Stage 10 completion. Neither holdout was unlocked; production defaults unchanged.
+
+**Status:** `In Progress / Quality Blocked`; v5 test/CLI verification confirmed, semantic performance **NOT REVIEWED** and **NO-GO** pending evidence.

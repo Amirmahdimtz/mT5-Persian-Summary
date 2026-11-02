@@ -69,7 +69,7 @@ class LongTextSummarizationService:
         This is an opt-in Stage 10 experiment, not a claim that lexical
         salience approximates semantic importance for arbitrary documents.
         """
-        ranked: list[tuple[int, int, str]] = []
+        ranked: list[tuple[int, int, int, str]] = []
         fenced = False
         for index, raw in enumerate(chunk.splitlines()):
             line = raw.strip()
@@ -86,8 +86,10 @@ class LongTextSummarizationService:
                 continue
             weight = 2 * bool(cls._SALIENT.search(sentence)) + bool(cls._DETAIL.search(sentence))
             if weight:
-                ranked.append((-weight, index, sentence))
-        return [item[2] for item in sorted(ranked)[:cls._MAP_EVIDENCE_LINES]]
+                ranked.append((-weight, len(sentence), index, sentence))
+        # Prefer concise, high-signal clauses; emit in original document order.
+        chosen = sorted(ranked)[:cls._MAP_EVIDENCE_LINES]
+        return [item[3] for item in sorted(chosen, key=lambda item: item[2])]
 
     async def _augment_map_async(self, source: str, summary: str) -> str:
         """Retain only exact source excerpts if the intermediate cap permits."""

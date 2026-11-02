@@ -701,3 +701,40 @@ $env:env_type = 'development'
 **Do not run `score` with empty/unreviewed labels.** Validate the output and perform atomic claim/fact review against the unchanged fixture. Frozen Stage 9 development gates: **>=8/19 unique medium synthetic facts covered**, **0/19 synthetic fact distortion and no critical directional/date/number/person inversions**, **<=12.5% unsupported atomic claims with reviewer-agreed segmentation**, **>=3/5 sources producing distinct short vs long outputs**, and existing authentic Development threshold **>=3/6 real required facts with zero critical fabrications**. The runtime API remains unmodified; performance, external documents and both reserved holdouts remain unverified.
 
 **Status:** Stage 10 **In Progress**; Candidate v4 **PROVISIONAL DEVELOPMENT RESULT ONLY**. New synthetic model execution and independently adjudicated labels are still outstanding.
+
+## 21. Candidate v4 synthetic Development CPU run: frozen Stage 10 gates fail (2026-11-02)
+
+The user uploaded the real pinned CPU output `local_stage10_synthetic_dev_candidate_v4.json`, generated with `--split dev --lengths short medium long --preserve-map-evidence --source-grounded-final --balanced-source-final`. Run provenance: fixed synthetic CC0 SHA-256 `cc907d6b16a4b68685b280002bb0a0f550ce6ce3966941c8732702c016f8a9a9`; model `nafisehNik/mt5-persian-summary` revision `b575560ad967050e77a40f907abb1ebbeefb9a15`, CPU, `no_repeat_ngram_size=3`, output-tier ceilings `40/80/120` tokens. **15 successful outputs for 5 distinct Development sources**, three tiers each, all within tier ceilings. There is **no independently adjudicated synthetic review yet**.
+
+| Synthetic dev case | Tokens, each of short/medium/long | Short vs long | Assistant provisional fact interpretation (medium) |
+| --- | ---: | --- | --- |
+| `weather_short` | 26 / 26 / 26 | identical | 1/2 covered (increased rain); driver advice omitted; generated wording `هشدار داد` adds a warning attribution not present in source |
+| `multitopic_pollution` | 33 / 33 / 33 | identical | 1/5 covered (electric-bus increase); 1/5 critically distorted (`کاهش آلودگی هوا` becomes `برای افزایش آلودگی هوا`); clinic count, underserved-area healthcare and AI lab agreement omitted |
+| `long_repetitive_education` | 22 / 22 / 22 | identical | 0/4 covered; teacher training, school infrastructure, phased rollout and disadvantaged schools omitted |
+| `meeting_decisions` | 19 / 19 / 19 | identical | 1/5 covered (meeting date); named owners, next meeting and budget omitted |
+| `budget_report` | 22 / 22 / 22 | identical | 0/3 covered, 1/3 critically distorted (`از ۳۰ میلیون به ۳۶ میلیون تومان افزایش` is rendered as `کاهش`); network expense decrease and contract review date omitted |
+
+**Provisional (assistant-only) medium fact classification:** **3/19 covered, 14/19 omitted, 2/19 distorted**. Both distorted facts are the exact direction reversals previously identified in the Stage 9 baseline. These labels have not been independently reviewed or scored by the official CLI. The forecast `هشدار داد` is a potential separate unsupported atomic claim; its interpretation must be adjudicated before computing unsupported-claim rate. **All five source texts are byte-identical across their short, medium and long outputs (0/5 distinct, versus frozen >=3/5 gate)**. Counts never reach the short 40-token ceiling; simply increasing `max_output_tokens` would not solve this issue.
+
+### Why v4 does not address these cases
+
+Inspection of `LongTextSummarizationService.summarize_async`: the new lead-prose fallback is called only in the hierarchy's final branch **when `first_level_source_evidence` is nonempty**. The four short synthetic prose cases go directly to mT5 because they fit the model input; the long repeated education source has no Markdown bullets, so `_evidence_lines` collects no first-level source evidence and the v4 fallback is not called. `balanced_source_final` is not a global grounding/faithfulness correction and must not be advertised as such. The current direct mT5 output still generates the two serious direction inversions.
+
+### Fixed gate comparison and disposition
+
+- Synthetic medium coverage **>=8/19**: FAIL (provisional 3/19).
+- Synthetic distortions **0/19**, no critical direction reversals: **FAIL** (2 observed).
+- Distinct short/long outputs **>=3/5**: **FAIL** (0/5).
+- Synthetic unsupported-claim fraction **<=12.5%**: **NOT SCORED**; independent atomic-claim review missing and warning attribution disputed.
+- Authentic Markdown Development **>=3/6 facts, zero critical fabrications**, architecture four-gram repeat 0%: previously observed favorable v4 assistant-draft score **5/6**, but independent human signoff still pending.
+- Full project regression: previously verified **386 passed, 2 nonblocking warnings** at the v4 code head; no source code or test suite changes were made in this assessment.
+
+**Decision: Candidate v4 NO-GO for Stage 10 completion and production.** Its gains on two Markdown source documents do not generalize to these fixed plain-Persian synthetic documents. Do **not** unlock synthetic or real holdouts, retune frozen fact labels or thresholds, or claim one cold CPU run is a reliable latency measurement. A separate, reviewer-adjudicated synthetic Development review should be generated first. Any later implementation needs a model-output/direct-text semantic-fidelity design, explicit direction/number safety checks, and true tier differentiation, not more paragraph selection tuned to two Markdown documents.
+
+### Next review-only step
+
+```powershell
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset benchmarks/fixtures/quality_v1.json review-template --runs local_stage10_synthetic_dev_candidate_v4.json --output local_stage10_synthetic_dev_review_v4.json
+```
+
+Independently review **each** fact and atomic claim across all 15 results, especially the pollution and software-expense direction inversions and whether `هشدار داد` is an unsupported source attribution; **do not score an unreviewed template**. Once actually annotated, use `score --runs ... --reviews ...` to calculate authoritative fixed-gate diagnostic metrics. Stage 10 remains **In Progress / Blocked on quality**, with no new model or API implementation in this documentation update.

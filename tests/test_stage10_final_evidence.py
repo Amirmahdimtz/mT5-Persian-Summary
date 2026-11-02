@@ -204,3 +204,14 @@ def test_original_mvp_plan_backlog_clause_remains_excluded_across_chunks():
     # A chunk which lacks the preceding heading could still select the
     # sentence; full-source exclusion must prevent final scope inversion.
     assert forbidden in LongTextSummarizationService._evidence_lines("- " + forbidden)
+
+
+def test_phase_number_alone_does_not_imply_non_current_feature():
+    source = (
+        "## فاز دوم: قابلیت‌های موجود\n"
+        "- این قابلیت باید فعال باشد.\n"
+    )
+    assert "این قابلیت باید فعال باشد." in (
+        LongTextSummarizationService._evidence_lines(source)
+    )
+    assert not LongTextSummarizationService._excluded_original_clauses(source)

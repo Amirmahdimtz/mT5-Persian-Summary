@@ -49,6 +49,11 @@ def setup_audit(monkeypatch):
 
     class FakeProvider:
         calls = 0
+
+        @staticmethod
+        def count_input_tokens(value):
+            return len(value) + 1
+
         async def summarize_async(self, *args, **kwargs):
             self.calls += 1
             raise AssertionError("model inference must never run")
@@ -64,6 +69,11 @@ def setup_audit(monkeypatch):
     class FakeService:
         _provider = provider
         _chunker = FakeChunker()
+
+        @staticmethod
+        def output_token_budget(length):
+            assert length == "medium"
+            return 500
 
         @staticmethod
         def _evidence_lines(chunk):
@@ -249,3 +259,69 @@ def test_preview_flag_rejects_non_boolean(monkeypatch, tmp_path):
         ))
     assert not written
     assert provider.calls == 0
+
+
+def test_preflight_prioritizes_source_signals_and_uses_joint_token_count(monkeypatch):
+    mod, run, case, provider, written, Invalid = setup_audit(monkeypatch)
+    lines = [
+        "متن مقدمه بدون نشانه خاص و کاملاً عمومی درباره پروژه.",
+        "مدل می‌تواند متن و فایل‌های `TXT`، `PDF` و `DOCX` را تحلیل کند.",
+        "سه بخش اصلی برای گزارش تدوین شده‌اند.",
+        "چند گزارش در یک درخواست نیز پشتیبانی می‌شوند.",
+    ]
+    selected, count = mod.lead_prose_budget_preflight(
+        lines, lambda text: len(text) + 1, max_tokens=500,
+    )
+    assert len(selected) == 3
+    assert lines[1] in selected and lines[2] in selected and lines[3] in selected
+    assert lines[0] not in selected
+    assert count == len("\n".join(selected)) + 1
+
+
+def test_preflight_rejects_invalid_tokenizer_or_budget(monkeypatch):
+    mod, *_ = setup_audit(monkeypatch)
+    with pytest.raises(mod.BenchmarkInputError, match="budget"):
+        mod.lead_prose_budget_preflight(["نمونه `PDF`"], len, 0)
+    with pytest.raises(mod.BenchmarkInputError, match="tokenizer"):
+        mod.lead_prose_budget_preflight(["بررسی `PDF` ضروری است."], lambda _: True, 200)
+
+
+def test_budget_preflight_integration_never_saves_source_or_invokes_model(monkeypatch, tmp_path):
+    mod, run, case, provider, written, Invalid = setup_audit(monkeypatch)
+    case["text"] = (
+        "## 1. هدف\n"
+        "ارسال فایل‌های `TXT` و `PDF` پشتیبانی می‌شود.\n"
+        "## 2. خارج از محدوده\n"
+        "- قابلیت آینده باید فعال شود.\n"
+    )
+    case["facts"] = [{
+        "id": "formats",
+        "source_quote": "ارسال فایل‌های `TXT` و `PDF` پشتیبانی می‌شود.",
+    }]
+    asyncio.run(mod.execute_async(
+        Path("dataset"), Path("runs"), tmp_path / "preflight.json",
+        preview_lead_prose=True, preview_lead_budget=True,
+    ))
+    assert provider.calls == 0
+    assert written["inference_calls"] == 0
+    assert written["preview_lead_budget"] is True
+    result = written["results"][0]
+    assert result["lead_budget_preflight"]["selected_source_sentence_count"] == 1
+    assert result["facts"][0]["found_in_budgeted_lead_preflight"] is True
+    assert "ارسال فایل‌های" not in json.dumps(written, ensure_ascii=False)
+
+
+def test_preflight_requires_prose_preview_and_boolean_flag(monkeypatch, tmp_path):
+    mod, run, case, provider, written, Invalid = setup_audit(monkeypatch)
+    with pytest.raises(Invalid, match="requires"):
+        asyncio.run(mod.execute_async(
+            Path("dataset"), Path("runs"), tmp_path / "not-created.json",
+            preview_lead_budget=True,
+        ))
+    with pytest.raises(Invalid, match="booleans"):
+        asyncio.run(mod.execute_async(
+            Path("dataset"), Path("runs"), tmp_path / "not-created.json",
+            preview_lead_prose=True, preview_lead_budget="yes",
+        ))
+    assert provider.calls == 0
+    assert not written

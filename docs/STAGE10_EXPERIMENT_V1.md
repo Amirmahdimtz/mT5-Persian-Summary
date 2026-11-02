@@ -539,3 +539,36 @@ $env:env_type = 'development'
 Upload only `local_stage10_prose_preview_v3_2.json` (metadata-only). Next, **before adding new runtime changes**, evaluate whether a *general-purpose* scope-aware prose selector and strict per-tier tokenizer budget can retain important introductory facts without losing the three architecture requirements or introducing future/out-of-scope claims. The existing reviewed-result requirement and the Stage 9 frozen synthetic gates remain unchanged; Stage 10 is **In Progress**.
 
 **Verification honesty:** four new preview-specific tests are committed but full Windows regression has **not** run after the preview code change. The previously observed 365 passed apply only to the preceding audit head.
+
+## 16. Real lead-prose preview confirms MVP evidence eligibility; final-token preflight added (2026-11-02)
+
+**User-side Windows verification:** after pulling `e279866a6b9f2818fbb93fb49ae1a3fd3b0ae3a9`, `compileall` succeeded, targeted selector audit suite **9 passed** (0.41s), and full `pytest -q` **369 passed, 2 nonblocking deprecation warnings** (11.75s). The actual DI-resolved tokenizer-only `benchmarks.stage10_selector_audit --preview-lead-prose` completed successfully and produced `local_stage10_prose_preview_v3_2.json`; no new model generation occurred.
+
+| Development case | Source chunks | Bullet-eligible original reference facts | Exact reference facts in lead prose preview | Lead candidate fragments |
+| --- | ---: | ---: | ---: | ---: |
+| `real_architecture_guide` | 10 | **3/3** | **0/3** | 2 |
+| `real_mvp_plan` | 9 | **0/3** | **3/3** | 17 |
+
+The two authentic documents need **different evidence channels**. The three required architecture rules are already available as selected bullets and survive in v3.2 final excerpts. The three missing MVP facts are unavailable to the present bullet selector but present verbatim in the opening prose and preface. This corroborates the **selection-eligibility root cause** while making clear that no prose-selection runtime behavior or semantic quality improvement has yet been measured.
+
+### Conservative preflight before any Candidate v4 generation
+
+The existing *offline-only* `benchmarks.stage10_selector_audit` now offers `--preview-lead-budget` in addition to `--preview-lead-prose`. It tries **at most three** intro/preface source sentences scored using generic technical-marker, quantified-number and supported-capability signals — no dataset fact IDs, original reference summary or document-specific target words. It checks each **concatenated** source-only candidate with the real DI tokenizer against `LongTextSummarizationService.output_token_budget('medium')` (currently **80**). The report records selected clause count, exact combined token count and **per-fact source-quote lexical inclusion booleans**, but does **not** export any text. It runs **zero generate/inference calls**, does **not** change the service, model configuration, or production behavior and refuses holdouts.
+
+**Limitations:** this is a candidate-planning diagnostic, not proof of high-quality ranking or preservation in actual Map/Reduce; a ranked source quote may carry unwanted context, may be too long to fit, or may not correspond to an independent atomic claim. English metadata in the preface may be stale; output must still be checked for scope and temporal attribution. Quantified and technical signals can bias toward numbers or filenames rather than representative document coverage. No automatic GO decision may be based solely on these flags.
+
+PowerShell from the project root:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage10_selector_audit.py
+.\.venv\Scripts\python.exe -m pytest -q
+
+.\.venv\Scripts\python.exe -m benchmarks.stage10_selector_audit --dataset local_quality_project_v1.json --runs local_stage10_project_dev_candidate_v3_2.json --preview-lead-prose --preview-lead-budget --output local_stage10_lead_budget_preflight_v3_2.json
+```
+
+Share only the metadata report `local_stage10_lead_budget_preflight_v3_2.json`. If the actual tokenizer can fit the expected source quotes, consider a **single controlled v4 runtime experiment** that combines intro evidence with already-successful architecture bullets, while preserving final 80-token cap and source context. If not, do not blindly expand token limits or inject reference facts.
+
+**Verification honesty:** the prior **369 Windows Passed** is from before these changes. The new budget-preflight implementation and tests are committed but the Windows suite and real tokenizer preflight have **not yet been run**. Stage 10 **In Progress**, candidate v3.2 not approved for release.

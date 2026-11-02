@@ -668,3 +668,36 @@ On Windows, inspect `local_stage10_project_dev_review_v4.json` already created b
 ```
 
 After the independent real-document review, run a **separate fixed synthetic Development** evaluation for the opt-in candidate and all three length tiers to test the previously frozen directional/unsupported/tier gates; evaluate its `short` and `long` outputs without altering source facts or the thresholds. Do not unlock holdouts before all Development gates are satisfied. The existing defaults and REST API remain unchanged; no additional code changes are justified solely by this favorable two-document comparison.
+
+## 20. Candidate v4 score command succeeds; copied assistant draft is not an independent review (2026-11-02)
+
+The user copied the assistant-generated `local_stage10_project_dev_review_v4_assistant_draft.json` to `local_stage10_project_dev_review_v4_validated.json`, confirmed the file exists, then ran the repository `quality_benchmark score` command successfully. The first attempt had failed solely because the file did not exist; no model, evaluation, or input-schema failure was involved.
+
+### Exact score results from the uploaded report
+
+| Metric | Observed score |
+| --- | --- |
+| Successful / scored runs | 2 / 2 (both `medium`, no `short` or `long` run) |
+| Facts | **5 covered / 1 omitted / 0 distorted = 83.33% coverage** |
+| Fact types | 3/3 `action` covered, 2/2 `topic` covered, 0/1 `number` covered |
+| Atomic claims in copied assistant draft | **9 reviewed by the scoring schema, 0 unsupported** |
+| Medium output tokenizer | mean **72.5 encoded tokens**; **0** exceeding the 80-token ceiling |
+| Four-gram repetition | **0** repeated-four-gram outputs out of 2 |
+| Length differentiation | **NOT EVALUATED**: no `short` / `long` examples |
+
+Dataset SHA is still `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c`. The omitted `number` fact is the fixed eight-stage milestone in `real_mvp_plan`. This is the direct tool result for the **assistant's copied draft annotations**. Merely renaming/copying the draft to a `validated` filename does **not** represent independent human verification. `reviewed_runs=2` only indicates two complete, structurally admissible review records; the benchmark cannot verify a reviewer's identity, independence, or semantic judgment. Accordingly this is **NOT an independently human-validated score**, notwithstanding the report warning that metrics are human-annotated. No Stage 10 GO or Production signoff is warranted.
+
+### Next independent development check: frozen synthetic gate
+
+To avoid overfitting the same two Markdown documents, **do not change the v4 heuristics further** before evaluating the existing, immutable CC0 synthetic Development fixture. Run v4 on the **five synthetic Development cases** for `short`, `medium`, and `long` (15 source/tier pairs), preserving all three opt-in flags and `split=dev`, with no holdout access:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = 'development'
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset benchmarks/fixtures/quality_v1.json run --split dev --lengths short medium long --preserve-map-evidence --source-grounded-final --balanced-source-final --output local_stage10_synthetic_dev_candidate_v4.json
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset benchmarks/fixtures/quality_v1.json review-template --runs local_stage10_synthetic_dev_candidate_v4.json --output local_stage10_synthetic_dev_review_v4.json
+```
+
+**Do not run `score` with empty/unreviewed labels.** Validate the output and perform atomic claim/fact review against the unchanged fixture. Frozen Stage 9 development gates: **>=8/19 unique medium synthetic facts covered**, **0/19 synthetic fact distortion and no critical directional/date/number/person inversions**, **<=12.5% unsupported atomic claims with reviewer-agreed segmentation**, **>=3/5 sources producing distinct short vs long outputs**, and existing authentic Development threshold **>=3/6 real required facts with zero critical fabrications**. The runtime API remains unmodified; performance, external documents and both reserved holdouts remain unverified.
+
+**Status:** Stage 10 **In Progress**; Candidate v4 **PROVISIONAL DEVELOPMENT RESULT ONLY**. New synthetic model execution and independently adjudicated labels are still outstanding.

@@ -39,6 +39,18 @@ def _public_settings(run: dict[str, Any]) -> dict[str, Any] | None:
     return {key: settings[key] for key in _MODEL_FIELDS if key in settings}
 
 
+def _pipeline_trial(run: dict[str, Any]) -> bool | None:
+    settings = run.get("pipeline_settings")
+    if settings is None:
+        return None  # Historical Stage 9 / v1 run did not record this knob.
+    if not isinstance(settings, dict):
+        raise BenchmarkInputError("pipeline_settings must be a mapping")
+    value = settings.get("preserve_map_evidence")
+    if type(value) is not bool:
+        raise BenchmarkInputError("pipeline_settings.preserve_map_evidence must be boolean")
+    return value
+
+
 def _index_runs(data: dict[str, Any], valid_ids: set[str], expected_sha: str) -> dict[tuple[str, str], dict[str, Any]]:
     if data.get("dataset_sha256") != expected_sha:
         raise BenchmarkInputError("run dataset SHA does not match the supplied fixed dataset")
@@ -102,6 +114,8 @@ def compare_runs(dataset: dict[str, Any], expected_sha: str, baseline: dict[str,
         "paired_cases": len(comparison),
         "baseline_generation": _public_settings(baseline),
         "candidate_generation": _public_settings(candidate),
+        "baseline_preserve_map_evidence": _pipeline_trial(baseline),
+        "candidate_preserve_map_evidence": _pipeline_trial(candidate),
         "different_successful_outputs": sum(x["outputs_identical"] is False for x in comparison),
         "unchanged_successful_outputs": sum(x["outputs_identical"] is True for x in comparison),
         "comparison": comparison,

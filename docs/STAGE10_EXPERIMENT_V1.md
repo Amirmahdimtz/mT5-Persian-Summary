@@ -789,3 +789,33 @@ Actual Development-only `quality_benchmark run` completed with the existing immu
 **Next:** upload both `local_stage10_synthetic_dev_candidate_v5_extract.json` and `local_stage10_synthetic_dev_compare_v4_v5_extract.json`. Review against the *unchanged* synthetic Development source/atomic facts and frozen Stage 9 criteria: >=8/19 unique medium facts, zero critical polarity/number/date/person inversions and 0/19 distorted facts, <=12.5% independently reviewed unsupported claims, >=3/5 distinct short versus long texts, and 0 API regressions. An independent human review and representative TXT/PDF/DOCX evidence remain required before Stage 10 completion. Neither holdout was unlocked; production defaults unchanged.
 
 **Status:** `In Progress / Quality Blocked`; v5 test/CLI verification confirmed, semantic performance **NOT REVIEWED** and **NO-GO** pending evidence.
+
+## 24. v5 extractive synthetic Development: actual 15-output analysis (2026-11-02)
+
+Two actual user-uploaded artifacts were inspected: `local_stage10_synthetic_dev_candidate_v5_extract.json` and `local_stage10_synthetic_dev_compare_v4_v5_extract.json`. The v5 run's canonical JSON SHA-256 computed independently is **`9753e81679f6bd9a33db1958d2d1a26666f90bcdb7d0accb456d32ca78a585f7`**, matching the comparator's `candidate_runs_sha256` exactly. The fixed synthetic dataset SHA-256 in both files is `cc907d6b16a4b68685b280002bb0a0f550ce6ce3966941c8732702c016f8a9a9`. The model ID/revision/generation metadata matches v4, but the run explicitly declares **`inference_mode=source_sentence_only_no_model_generate`**: this is source extraction/tokenization, **not** mT5 generative inference or evidence that the model's weights/decoder improved.
+
+All **15/15** Development case/tier outputs succeeded (five sources × `short`, `medium`, `long`), and all fit their unchanged encoded-token ceilings **40/80/120** respectively. The paired v4-v5 comparator shows **15/15 changed**, no paired failures and no repeated four-grams; changed text is not by itself a quality metric. Extractive results were checked against the original fixed Development source facts **lexically, not by independent human semantic review**.
+
+| Development source | Medium source quotes present / required | Short / medium / long encoded tokens | Short differs from long? |
+| --- | ---: | --- | --- |
+| `weather_short` | **2/2** (rain increase; road advice) | 28 / 49 / 49 | Yes |
+| `multitopic_pollution` | **2/5** (electric bus increase; two clinics) | 31 / 73 / 104 | Yes |
+| `long_repetitive_education` | **2/4** (teacher training; school infrastructure) | 31 / 56 / 90 | Yes |
+| `meeting_decisions` | **3/5** (meeting date; security owner; cost owner) | 24 / 64 / 96 | Yes |
+| `budget_report` | **2/3** (network expense down; software support expense up) | 36 / 66 / 91 | Yes |
+
+**Provisional source-span coverage counts:** `short` **4/19**, `medium` **11/19** (57.89%), `long` **18/19**. These are checks for the immutable literal source_quote text in exact excerpted source sentences; they are **not official independent fact-review scores**. The four-gram repetition fraction in the comparative report is 0 for all fifteen excerpts. The `medium` coverage threshold **>=8/19** and the short-vs-long differentiation threshold **>=3/5** are satisfied as **literal observable checks** (11/19; 5/5). The two former critical direction inversions are absent: `multitopic_pollution` medium does **not** incorrectly say pollution increases, but **omits** the pollution reduction; `budget_report` medium correctly quotes network expense decrease and software support expense increase from 30→36. No source-inconsistent direction/number claim was obvious among the five `medium` exact excerpts. This is still **not** a human-certified zero-distortion score; extracted sentences may lose cross-sentence context, negation scope or referents.
+
+**Remaining omissions and limitations:** `long` still omits the underserved-neighborhood healthcare detail (18/19); `medium` omits pollution-reduction intent, underprivileged school priority, next-meeting date and initial budget. The weather `medium` and `long` text is identical because the short two-sentence source has no more distinct facts, which is acceptable under the frozen short-vs-long gate, not a promise of three distinct lengths for arbitrary texts. The original v5 parser caps examination to 64 unique sentences and requires punctuation-terminated sentences; direct source extraction can misrepresent scope if it omits qualifying context. Source-only results are much longer than the mT5 generated v4 outputs and should be evaluated for summarization utility, not just fact quote counts.
+
+**Timing caution:** the first `weather_short/short` trial reported 73.238s whereas subsequent v5 outputs were near 0.006–0.034s; this cold-start includes tokenizer/model-environment preparation and cannot be interpreted as a controlled end-to-end warm API latency or direct speedup of mT5. The v5 mode performs **no generation**, so CPU latency comparisons with v4's full inference pipeline do not establish a model decoding speed improvement. Peak memory still not measured.
+
+**Decision:** Candidate v5 is a promising **extractive safety/coverage proof of concept** that provisionally clears frozen synthetic Development *observables* (11/19 literal medium facts; absence of the two previously reversed source statements; distinct short vs long on 5/5). It does **not** satisfy the independent atomic-claim review gate yet, nor establish the performance of actual mT5 summarization, representative TXT/PDF/DOCX documents, or production reliability. Keep **Stage 10 In Progress / NO-GO**. Do **not** unlock either holdout, change fixed thresholds, or enable any trial flag in the API.
+
+### Next review without rerunning v5
+
+```powershell
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark --dataset benchmarks/fixtures/quality_v1.json review-template --runs local_stage10_synthetic_dev_candidate_v5_extract.json --output local_stage10_synthetic_dev_review_v5_extract.json
+```
+
+Have a human reviewer independently label each fact and each atomic claim across the **15** outcomes, with exact source evidence, especially source polarity and omitted context. Once verified, use `score` with a separately saved reviewed file; distinguish mechanical review completeness from independent adjudication. Consider a decision record comparing optional Extractive mode with the project's mT5-based abstractive objective, rather than shipping v5 as an invisible replacement.

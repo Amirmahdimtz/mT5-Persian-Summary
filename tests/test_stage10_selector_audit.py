@@ -325,3 +325,70 @@ def test_preflight_requires_prose_preview_and_boolean_flag(monkeypatch, tmp_path
         ))
     assert provider.calls == 0
     assert not written
+
+
+def test_reference_quote_floor_counts_joint_encoded_text_and_redacts_source(monkeypatch):
+    mod, run, case, provider, written, Invalid = setup_audit(monkeypatch)
+    facts = [
+        {"id": "first", "source_quote": "فایل‌های TXT و PDF"},
+        {"id": "second", "source_quote": "چند فایل در یک درخواست"},
+    ]
+    result = mod.reference_quote_budget_floor(
+        facts, lambda value: len(value) + 1, 80,
+    )
+    assert result["reference_quote_count"] == 2
+    assert result["combined_source_quote_tokens"] == len(
+        "\n".join(f["source_quote"] for f in facts)
+    ) + 1
+    assert result["combined_quotes_fit_final_budget"] is True
+    assert [x["fact_id"] for x in result["individual_source_quote_tokens"]] == [
+        "first", "second",
+    ]
+    encoded = json.dumps(result, ensure_ascii=False)
+    assert "چند فایل" not in encoded
+    assert "TXT" not in encoded
+    assert provider.calls == 0
+
+
+def test_reference_quote_floor_is_not_a_model_or_summary_safety_gate(monkeypatch, tmp_path):
+    mod, run, case, provider, written, Invalid = setup_audit(monkeypatch)
+    case["facts"] = [
+        {"id": "required", "source_quote": "این قانون باید اجرا شود."},
+    ]
+    asyncio.run(mod.execute_async(
+        Path("dataset"), Path("runs"), tmp_path / "floor.json",
+        preview_lead_prose=True, preview_lead_budget=True,
+        preview_reference_floor=True,
+    ))
+    floor = written["results"][0]["reference_budget_floor"]
+    assert floor["combined_quotes_fit_final_budget"] is True
+    assert written["inference_calls"] == 0
+    assert written["preview_reference_floor"] is True
+    assert provider.calls == 0
+    assert "این قانون" not in json.dumps(written, ensure_ascii=False)
+
+
+def test_reference_floor_requires_budget_preview_and_rejects_invalid_counts(monkeypatch, tmp_path):
+    mod, run, case, provider, written, Invalid = setup_audit(monkeypatch)
+    with pytest.raises(Invalid, match="requires lead budget"):
+        asyncio.run(mod.execute_async(
+            Path("dataset"), Path("runs"), tmp_path / "missing.json",
+            preview_reference_floor=True,
+        ))
+    with pytest.raises(Invalid, match="booleans"):
+        asyncio.run(mod.execute_async(
+            Path("dataset"), Path("runs"), tmp_path / "bad.json",
+            preview_lead_prose=True, preview_lead_budget=True,
+            preview_reference_floor=1,
+        ))
+    with pytest.raises(Invalid, match="tokenizer"):
+        mod.reference_quote_budget_floor(
+            [{"id": "number", "source_quote": "متن اصلی"}],
+            lambda _: True, 80,
+        )
+    with pytest.raises(Invalid, match="nonempty"):
+        mod.reference_quote_budget_floor(
+            [{"id": "number", "source_quote": ""}], lambda _: 2, 80,
+        )
+    assert provider.calls == 0
+    assert not written

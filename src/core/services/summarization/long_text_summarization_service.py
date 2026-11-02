@@ -47,8 +47,10 @@ class LongTextSummarizationService:
     _BULLET = re.compile(r"^[-*•][ \t]+(.+)$")
     _FIRST_SENTENCE = re.compile(r"(?<=[.!?؟؛])[ \t]+")
     # Generic Persian obligation/decision signals, not benchmark fact IDs.
-    _SALIENT = re.compile(r"باید|نباید|الزام|ممنوع|ضروری|موظف|نساز|نکن|تصمیم")
-    _DETAIL = re.compile(r"[@`/\d۰-۹A-Z]")
+    _OBLIGATION = re.compile(r"باید|نباید|الزام|ممنوع|ضروری|موظف")
+    _ACTION = re.compile(r"نساز|نکن|تصمیم")
+    _CODE = re.compile(r"[@`]")
+    _DETAIL = re.compile(r"[/\d۰-۹A-Z]")
 
     def __init__(
         self, text_chunking_service: TextChunkingService, model_provider: Mt5ModelProvider
@@ -84,7 +86,12 @@ class LongTextSummarizationService:
             sentence = cls._FIRST_SENTENCE.split(match.group(1), maxsplit=1)[0].strip()
             if not sentence or len(sentence) > 250:
                 continue
-            weight = 2 * bool(cls._SALIENT.search(sentence)) + bool(cls._DETAIL.search(sentence))
+            weight = (
+                3 * bool(cls._OBLIGATION.search(sentence))
+                + 2 * bool(cls._ACTION.search(sentence))
+                + 2 * bool(cls._CODE.search(sentence))
+                + bool(cls._DETAIL.search(sentence))
+            )
             if weight:
                 ranked.append((-weight, len(sentence), index, sentence))
         # Prefer concise, high-signal clauses; emit in original document order.

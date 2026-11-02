@@ -66,6 +66,8 @@ class LongTextSummarizationService:
         r"اجرا|پشتیبانی|آموزش|آغاز|پایان"
     )
     _HEADING = re.compile(r"^(#{1,6})[ \t]+(.+)$")
+    # pypdf layout mode may retain visual numbered headings as ordinary lines.
+    _NUMBERED_HEADING = re.compile(r"^[0-9۰-۹]{1,2}\s*[.)．]\s+\S.{0,70}$")
     _EXCLUDED_SECTION = re.compile(
         r"خارج\s+از\s+(?:محدوده|دامنه)|عدم\s+پشتیبانی|پشتیبانی\s+نشده"
         r"|غیرقابل\s+پشتیبانی|out[\s-]+of[\s-]+scope|not\s+supported"
@@ -272,6 +274,7 @@ class LongTextSummarizationService:
         scopes: list[tuple[int, bool]] = []
         fenced = False
         paragraph = 0
+        blank_run = 0
         lines: list[str] = []
 
         def flush_paragraph() -> bool:
@@ -295,6 +298,18 @@ class LongTextSummarizationService:
         for raw in source.splitlines():
             line = raw.strip()
             if not line:
+                blank_run += 1
+                # PDF layout text frequently inserts one blank line between
+                # two display-wrapped halves of the same logical sentence.
+                # Two blank lines, or a completed sentence, mark a boundary.
+                if (blank_run >= 2 or
+                        (lines and lines[-1].endswith((".", "!", "?", "؟", "؛")))):
+                    if flush_paragraph():
+                        return results
+                    paragraph += 1
+                continue
+            blank_run = 0
+            if cls._NUMBERED_HEADING.match(line):
                 if flush_paragraph():
                     return results
                 paragraph += 1

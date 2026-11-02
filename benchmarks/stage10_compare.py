@@ -67,6 +67,23 @@ def _final_source_trial(run: dict[str, Any]) -> bool | None:
     return value
 
 
+def _balanced_trial(run: dict[str, Any]) -> bool | None:
+    settings = run.get("pipeline_settings")
+    if settings is None:
+        return None
+    if not isinstance(settings, dict):
+        raise BenchmarkInputError("pipeline_settings must be a mapping")
+    value = settings.get("balanced_source_final")
+    if value is None:
+        return None  # Existing v3.2 runs did not record this setting.
+    if type(value) is not bool:
+        raise BenchmarkInputError("pipeline_settings.balanced_source_final must be boolean")
+    if value and (settings.get("source_grounded_final") is not True or
+                  settings.get("preserve_map_evidence") is not True):
+        raise BenchmarkInputError("balanced final requires both source-grounded flags")
+    return value
+
+
 def _index_runs(data: dict[str, Any], valid_ids: set[str], expected_sha: str) -> dict[tuple[str, str], dict[str, Any]]:
     if data.get("dataset_sha256") != expected_sha:
         raise BenchmarkInputError("run dataset SHA does not match the supplied fixed dataset")
@@ -134,6 +151,8 @@ def compare_runs(dataset: dict[str, Any], expected_sha: str, baseline: dict[str,
         "candidate_preserve_map_evidence": _pipeline_trial(candidate),
         "baseline_source_grounded_final": _final_source_trial(baseline),
         "candidate_source_grounded_final": _final_source_trial(candidate),
+        "baseline_balanced_source_final": _balanced_trial(baseline),
+        "candidate_balanced_source_final": _balanced_trial(candidate),
         "different_successful_outputs": sum(x["outputs_identical"] is False for x in comparison),
         "unchanged_successful_outputs": sum(x["outputs_identical"] is True for x in comparison),
         "comparison": comparison,

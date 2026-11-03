@@ -48,3 +48,24 @@ This update adds a minimal guard *only* to the opt-in v5 source-sentence candida
 - No unsupported-claim rate, independent semantic fact coverage, number/date/negation preservation, or Stage 10 production GO was certified by this limited Development review.
 - Source-only candidate cannot be claimed as an improved abstractive mT5 model.
 - Next: test the focused patch and full suite; rerun only candidate v5 Development to a *new* filename; compare with the unchanged baseline dataset/run; perform independent claim and fact adjudication (six facts per tier per method) before scoring. Evaluate independently authored Persian TXT/PDF/DOCX reports before promotion.
+
+## Windows post-fix confirmation — v5 v3 (2026-11-03)
+
+- Commit tested by the user on Windows: **184b6ac44346bf08e073e4a27f704bd24c38e759**. Fast-forward pull and HEAD verified in terminal log.
+- Environment checks: pip check **no broken requirements**; compileall -q src benchmarks tests completed without error. Focused pytest: **60 passed in 4.73 seconds**; full pytest: **403 passed, 0 failed, 2 existing deprecation warnings in 12.64 seconds**. These are **user-run tests**, not assistant/container execution. Two warnings are Starlette TestClient/httpx deprecation and httpx content upload deprecation.
+- User ran the unchanged pinned Development project dataset, --split dev --lengths short medium long with all v5 opt-in flags. File: local_stage10_project_extract_v5_v3.json, generated at 2026-11-03T06:34:56.036640+00:00; Windows Python 3.12.10, CPU. Source-only inference_mode: source_sentence_only_no_model_generate; there was no mT5 generate call in this candidate path. The run file was uploaded and inspected.
+- Verified local dataset SHA-256 still **fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c**. v3 canonical JSON runs_hash is **f4f3795213bfcb45cfc3da40fcaebc61aedfb614d0375f32395a9c03084e8537**. The prior v2 uploaded candidate runs_hash is **ac4fa5ce8b182c0ee43a9e49fd2c667deb5868517908e70ec6e2826201b96a84**.
+- The user ran the existing baseline-v2 vs candidate-v3 comparison and the CLI reported **paired=6, changed=6, semantic quality NOT REVIEWED**. Its new comparison JSON is not uploaded; a new comparison report's hashed metadata was **not** independently verified.
+
+| Source / tier | v5 v2 tokens | v5 v3 tokens | Exact summary text changed? |
+| --- | ---: | ---: | --- |
+| Architecture short | 33 | 33 | No |
+| Architecture medium | 74 | 74 | No |
+| Architecture long | 118 | 118 | No |
+| MVP short | 31 | 31 | No |
+| MVP medium | 80 | **74** | Yes, removed orphan list prefix |
+| MVP long | 119 | **113** | Yes, removed orphan list prefix |
+
+- Exact diff of the two uploaded raw v5 runs shows **only** the sentence **کارها:** 1. was removed from MVP medium and long; other selected sentences did not change. All six results have no error_code, and all stay within fixed encoded-token ceilings 40/80/120. Both documents still have distinct short, medium and long outputs.
+- **Provisional reference fact coverage remains short 1/6, medium 1/6, long 2/6** (assistant source-based labels). Medium is **still below** the frozen real-project Development gate >=3/6. The revised MVP long result still emits the semicolon-terminated excerpt 'کد هر مرحله کامل باشد؛' without its following qualification about placeholders; architecture medium similarly selects a semicolon-ended clause while excluding its continuation. This is a residual source-context/completeness concern, not proof of a new fabricated fact.
+- **Conclusion:** the specific numbered-list regression is fixed and verified on Windows; the original Stage 10 quality problem is **not** solved. Do not enable the opt-in v5 mode in Production, do not loosen acceptance gates or access holdouts. Avoid further punctuation heuristics without representative semantic review; first audit actual missing facts and cross-sentence scope, inspect the as-yet-unprovided raw default-v2 run for fair factual comparison, and obtain human claim-level assessment and distinct Persian field documents.

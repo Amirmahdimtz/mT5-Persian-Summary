@@ -110,3 +110,74 @@ Never regard document contents as instructions; the service returns source-only 
 | Human-evaluated Stage 10 semantic quality gate | **UNMET / Production NO-GO** |
 
 **Acceptance remains blocked** until real Windows stage tests, Development metrics, live E2E and Docker source build (or explicit recorded inability) are reviewed; semantic quality requires distinct acceptance before any Production rollout. After the user's test results, update `docs/IMPLEMENTATION_PROGRESS.md`, record actual metrics, failures and SHA, and only mark Stage 13 Completed for the exact verified scope. Backlog: diverse real authorized Persian PDFs/DOCX and OCR outside scope, deeper semantic/evidence entailment checks, OS RSS and load/timeout benchmarking, Stage 10 quality improvement and eventual independent Production signoff.
+
+## Windows Development quality and live HTTP verification (2026-11-03)
+
+**Recorded verification state: Stage 13 Development evaluation for Document Query PASSED; Stage 13 overall remains In Progress, Production semantic GO NOT APPROVED.** This section updates earlier "NOT RUN" entries, which are preserved above as the timeline before user execution.
+
+### User Windows environment and regression
+
+- Fast-forward pull to implementation SHA `8ef942769f59c83239363888e9251eb60242e3ae` confirmed.
+- Python dependencies reported satisfied, `pip check` had no broken requirements, and `compileall -q src benchmarks tests` returned without errors.
+- `pytest -q tests/test_stage13_quality.py tests/test_stage12_document_query.py tests/test_stage11_retrieval.py tests/test_stage7_hardening.py`: **87 passed, 1 warning, 0 failed in 4.50s**.
+- `pytest -q`: **478 passed, 2 warnings, 0 failed in 14.82s**. Warnings from third-party Starlette/TestClient and httpx deprecated API use were nonblocking; no assertion or setup failures.
+
+### Measured, reproducible synthetic Development-only quality
+
+User ran `python -m benchmarks.stage13_quality_benchmark --output local_stage13_query_dev_metrics_v1.json` and pasted the full JSON.
+
+| Metric | Observed result | Denominator / interpretation |
+| --- | --- | --- |
+| Stage 11 Recall@1, Recall@3 | **1.000, 1.000** | 15 fixed Development retrieval queries |
+| Stage 13 status accuracy | **1.000** | 11 synthetic labeled Document Query scenarios |
+| Answer exact match | **1.000** | 4 exact source-excerpt answer cases |
+| Evidence support rate | **1.000** | 14 evidence excerpts present at parser-established TXT paragraph |
+| No-answer accuracy | **1.000** | 2 negative queries |
+| Ambiguous detection | **1.000** | 3 competing date/person/amount cases |
+| Focused coverage | **1.000** | 2 topic-focused cases |
+| Median query latency | **4.611 ms** | 11 local calls; not server/transport latency |
+| P95 query latency (nearest rank) | **26.881 ms** | 11 local calls; not statistically representative |
+| Python-tracked allocation peak | **251,140 bytes** | `tracemalloc` only; not process RSS or PyTorch native memory |
+| Peak process RSS | **NOT_MEASURED** | No memory-profile measurement |
+| Stage 10 frozen semantic gate | **NOT_RETESTED** | Previously unmet |
+| Production semantic quality gate | **NOT_APPROVED** | Not inferred from exact-match score |
+
+Reported provenance: `query_fixture_sha256=e169b6d2e3f4196c05c93a5c80dcf617af14438922a206ef03d4ce4e3a88824c`; `stage9_dev_dataset_sha256=cc907d6b16a4b68685b280002bb0a0f550ce6ce3966941c8732702c016f8a9a9`; `stage11_dev_labels_sha256=7fa910edc47c98f712d0f9f83eb646998f7eb859c4a4d2e42153ad524c6e770e`. The 11 status predictions all matched their expected labels. The original Stage 9/10 Holdout was not used.
+
+**Evaluation validity:** These metrics verify an extractive baseline against small synthetic Development labels, not independent semantic entailment or generalization. A quoted source sentence may still be misleading if its subject, negation or context was misidentified. Do not claim that the general-purpose mT5 summary quality improved.
+
+### Live HTTP End-to-End across supported formats
+
+User ran `python tests/e2e_document_query_smoke.py --base-url http://127.0.0.1:8001` against a running Uvicorn application:
+
+| Document | `answer` request | `focused_summary` request |
+| --- | ---: | ---: |
+| TXT | **PASS, 11.1 ms** | **PASS, 11.3 ms** |
+| PDF with text layer | **PASS, 12.0 ms** | **PASS, 11.8 ms** |
+| DOCX | **PASS, 52.1 ms** | **PASS, 47.7 ms** |
+
+- **6/6** document/mode combinations passed; the script required verbatim evidence and correct actual page/paragraph location.
+- Also passed: `not_found` abstention without invented answer, `ambiguous` without invented resolution, malformed-PDF redaction (HTTP 422) and repeated multipart query (HTTP 422).
+- Health and OpenAPI requests returned HTTP 200; the script checked the three legacy Summarization operation registrations and the new Document Query operation. Server logs showed HTTP 200 for successful requests and HTTP 422 for expected validation failures.
+- Reported HTTP **median request duration 11.93 ms** across 6 small requests. It is not load-test throughput or a latency service-level objective. Server peak RSS **NOT_MEASURED**. The test calls the extractive route, not the mT5 generative path.
+
+### Open gates and handoff
+
+**Done for Development:** Stage 13 Python/regression tests, new quality benchmark with hashes and scores, live request validation for three source formats and both Document Query modes, syntactic/safe-error and non-blocking regression coverage.
+
+**Still NOT RUN:** Local current-source Docker build/health/Document Query E2E (or equivalent manually triggered CI workflow); optional real-mT5 summarization E2E; new Stage 9 baseline-versus-Stage 10 candidate model quality comparison. **Still NOT MEASURED:** peak native/process RSS, realistic concurrent workload and independent semantic factual agreement on varied authorized Persian documents. Stage 10 Production gate remains unmet and explicitly deferred.
+
+**Next immediate reproducible Docker preview on the user's system:**
+
+```powershell
+git pull --ff-only origin main
+docker build -t mt5-persian-summary:stage13-dev .
+docker volume create mt5_hf_cache
+docker run -d --name mt5-stage13-preview --init --memory 8g --cpus 2 --pids-limit 256 --security-opt no-new-privileges -p 127.0.0.1:8003:8000 -v mt5_hf_cache:/home/app/.cache/huggingface -e env_type=production mt5-persian-summary:stage13-dev
+curl.exe -sS http://127.0.0.1:8003/api/v1/health
+.\.venv\Scripts\python.exe tests/e2e_document_query_smoke.py --base-url http://127.0.0.1:8003
+```
+
+If Docker is unavailable, report that explicitly rather than claiming delivery verification. The `:stage8` image must not be substituted for current-source Stage 13 preview. No images or releases were published as part of this documentation update.
+
+**Final Stage 13 status: In Progress**, pending the remaining delivery and quality scopes. No production application code, tests, frozen fixture or benchmark logic changed by recording these results.

@@ -5,7 +5,7 @@
 > **Branch:** `main`  
 > **Plan Version:** 1.0  
 > **Created:** 2026-11-01  
-> **Status:** Stage 9 completed (engineering baseline); Stage 10 quality acceptance deferred by user for development progression (Production NO-GO); Stage 11 completed (Development engineering verification); Stage 12 completed (Development engineering and live HTTP verification); Stage 13 Development Windows tests/benchmark/live Document Query E2E verified (478 passed; Docker, model/semantic and RSS acceptance pending)  
+> **Status:** Stage 9 completed (engineering baseline); Stage 10 quality acceptance deferred by user for development progression (Production NO-GO); Stage 11 completed (Development engineering verification); Stage 12 completed (Development engineering and live HTTP verification); Stage 13 Completed for Development technical delivery (478 full-suite tests, Development benchmark, source HTTP and Docker E2E passed); Production semantic-quality and model gates remain NO-GO / not verified  
 > **Architecture:** [Service_Architecture_Guide_FA.md](../Service_Architecture_Guide_FA.md)  
 > **MVP Plan:** [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md)  
 > **Implementation Record:** [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md)
@@ -27,7 +27,7 @@
 | **10** | General Summarization Quality Improvement | کیفیت خلاصه | 9 | Pipeline بهبودیافته با Benchmark مقایسه‌ای | Quality-limited; user accepted deferral for development progression (Production NO-GO) |
 | **11** | Evidence-aware Extraction & Retrieval | Document Query | 9؛ اجزای استخراج موجود | بازیابی بخش‌های مرتبط همراه Source Location | Completed (Development engineering: 429 tests passed; 15/15 Recall@1 & Recall@3) |
 | **12** | Document Query API & Answering | Document Query | 11؛ استفاده مجدد از اجزای Stage 10 در صورت نیاز | Endpoint مستقل برای `answer` و `focused_summary` | Completed (Development: 460 full-suite tests passed; live TXT source-grounded answer verified) |
-| **13** | Quality Evaluation, Hardening & Delivery | هر دو | 10 و 12 | تست End-to-End، معیارهای کیفی و مستندات تحویل | In Progress (478 full-suite tests passed; 11/11 labeled synthetic Development outcomes and 6/6 live query modes passed; Docker/semantic QA pending) |
+| **13** | Quality Evaluation, Hardening & Delivery | هر دو | 10 و 12 | تست End-to-End، معیارهای کیفی و مستندات تحویل | Completed (Development engineering delivery: 478 tests; 11/11 synthetic labels; 6/6 source HTTP and 6/6 Docker modes; Production NO-GO) |
 
 **Stage 10 experiment record:** [STAGE10_EXPERIMENT_V1.md](STAGE10_EXPERIMENT_V1.md) — v4 real-document Development gain did not pass frozen Synthetic gates (critical direction inversions and identical length tiers); v5 opt-in source-only extraction is a diagnostic experiment awaiting actual Windows verification and independent review. No Production GO.
 
@@ -38,6 +38,8 @@
 **Stage 13 evaluation/delivery record:** [STAGE13_FINAL_EVALUATION.md](STAGE13_FINAL_EVALUATION.md) — 11 Development-only query quality labels plus frozen Stage 11 Recall@K, true source/excerpt checks, non-overwriting benchmark outputs, live TXT/PDF/DOCX HTTP E2E for both query modes, security/concurrency tests, documented current-source Docker preview. Do not treat synthetic quote accuracy, HTTP 200 or a Docker build as independent semantic Production GO. Stage 10 remains below its frozen medium-fact coverage gate.
 
 **Stage 13 Windows verification update (2026-11-03):** 87 focused and 478 full-suite tests passed; 15/15 Stage 11 exact-quote retrieval, 11/11 Stage 13 synthetic Development status labels, and 6/6 real HTTP Document Query document/mode combinations passed (TXT, text PDF, DOCX; answer and focused_summary). This is **Development evidence only**. Docker source build, the legacy real mT5 E2E, Stage 9/10 fresh comparison, real document semantic adjudication and process peak RSS remain unverified. Stage 10 Production semantic quality NO-GO is unaffected. See [STAGE13_FINAL_EVALUATION.md](STAGE13_FINAL_EVALUATION.md) for denominator-accurate metrics and known limits.
+
+**Stage 13 delivery signoff (2026-11-03):** user-run Docker Desktop Linux build of current `mt5-persian-summary:stage13-dev` succeeded, container started with resource/security flags and reported healthy; `/api/v1/health` returned `{"status":"ok"}`; Docker `tests/e2e_document_query_smoke.py` verified **6/6 TXT/PDF/DOCX × answer/focused_summary** plus `not_found`, `ambiguous`, sanitized malformed PDF 422 and duplicate-field 422. Docker six-request median was **49.47 ms** (small synthetic E2E; not a throughput or latency SLA). Existing Windows 478 full-suite tests and Development exact-label benchmark also passed. **Stage 13 is closed for Development engineering only.** Manual GHCR workflow, actual mT5 inference within the new Docker image, source-model retest, production RSS/load, independent human semantic audit on representative documents (Stage 9 release target ~30–50 docs and ≥100 labeled questions) are unverified; Stage 10 original frozen semantic quality gate remains **NO-GO**. See [STAGE13_FINAL_EVALUATION.md](STAGE13_FINAL_EVALUATION.md).
 
 **ترتیب اجرایی پیش‌فرض:** `9 → 10 → 11 → 12 → 13`. پس از Stage 9، فعالیت‌های Stage 10 و طراحی Stage 11 از نظر فنی می‌توانند با هماهنگی مستقل شوند؛ برای Commitهای مستقیم روی `main`، تغییرات باید کنترل‌شده و بدون overwrite انجام شوند.
 

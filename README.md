@@ -4,7 +4,7 @@
 
 This project accepts Persian text or `TXT`, text-based `PDF`, and `DOCX` documents and returns a Persian summary using [`nafisehNik/mt5-persian-summary`](https://huggingface.co/nafisehNik/mt5-persian-summary). It also supports multiple documents in a single request, returning **a separate summary for each file**.
 
-> **Status: completed and tested MVP; Stage 11/12 Document Query Development acceptance completed; Stage 13 evaluation in progress.** A successful API response does **not** guarantee a faithful summary. The model can omit important details, misstate facts, or generate an excessively short summary for a long document. **Always compare the generated summary with the original source before business or organizational use.**
+> **Status: completed and tested MVP; Stage 11/12 Document Query Development acceptance completed; Stage 13 Development technical delivery completed; Production semantic-quality signoff remains NO-GO.** A successful API response does **not** guarantee a faithful summary. The model can omit important details, misstate facts, or generate an excessively short summary for a long document. **Always compare the generated summary with the original source before business or organizational use.**
 
 ## Requirements at a glance
 
@@ -307,7 +307,7 @@ docker start mt5-persian-summary
 
 ## Stage 13 — Document Query quality evaluation and current-source delivery
 
-**Feature status:** Stage 11/12 Development engineering acceptance completed. Stage 13 evaluation/hardening is underway; **Production semantic-quality GO is not granted**. The published `:stage8` image is legacy and need not contain the newer Document Query feature.
+**Feature status:** Stage 11/12 Development engineering acceptance completed. Stage 13 Development testing, benchmark and source-image Docker HTTP E2E have passed; **Production semantic-quality GO is not granted**. The published `:stage8` image is legacy and need not contain the newer Document Query feature.
 
 The current source adds `POST /api/v1/document_query/file` (multipart/form-data): one required TXT/text-PDF/DOCX upload and one required query (1–512 characters). `mode=answer` (default) returns verbatim source evidence; `mode=focused_summary` concatenates only relevant source excerpts within 320/680/1200-character budgets for `short`/`medium`/`long`. `summary_length` is invalid with `answer`, and unknown/duplicate fields are rejected. `found` returns source citations with true PDF page/TXT-DOCX paragraph/table locations; `not_found` returns no answer or evidence; `ambiguous` returns competing evidence but no guessed answer. Both modes are **extractive**: neither invokes mT5 or guarantees semantic entailment. The original three Summarization endpoints require no query.
 
@@ -359,5 +359,7 @@ docker run -d --name mt5-stage13-preview --init --memory 8g --cpus 2 --pids-limi
 curl.exe -sS http://127.0.0.1:8003/api/v1/health
 .\.venv\Scripts\python.exe tests/e2e_document_query_smoke.py --base-url http://127.0.0.1:8003
 ```
+
+**Docker Development verification (2026-11-03):** Windows Docker Desktop Linux build for `mt5-persian-summary:stage13-dev` succeeded, container reported `healthy`, `GET /api/v1/health` returned `{"status":"ok"}`, and the current-source Docker E2E passed all six TXT/text-PDF/DOCX × `answer`/`focused_summary` combinations plus negative/conflict and safe validation checks (six-request median **49.47 ms** on the user's machine). Windows full pytest also passed **478 tests**. **Not tested**: real mT5 model inference inside the new image, manual GHCR workflow/publication, process peak RSS under load, independent real Persian document semantic quality. The published legacy `:stage8` image was not modified. Development engineering signoff is **not Production GO**.
 
 The Dockerfile bundles source/dependencies, **not** mT5 weights. Live Docker, memory/RSS and real Persian document stress tests must be run on the intended machine before any release signoff. Document Query works without a model download; regular summarization still uses the lazy mT5 provider.

@@ -181,3 +181,35 @@ curl.exe -sS http://127.0.0.1:8003/api/v1/health
 If Docker is unavailable, report that explicitly rather than claiming delivery verification. The `:stage8` image must not be substituted for current-source Stage 13 preview. No images or releases were published as part of this documentation update.
 
 **Final Stage 13 status: In Progress**, pending the remaining delivery and quality scopes. No production application code, tests, frozen fixture or benchmark logic changed by recording these results.
+
+## Final Development engineering signoff — Docker build and HTTP E2E (2026-11-03)
+
+**Status: COMPLETED for Development engineering and reproducible delivery; NOT approved for Production.** This final signoff supersedes the older "Docker NOT RUN / Stage 13 In Progress" entries above, retained as an execution timeline. The separate Stage 10 frozen quality criteria remain unmet and are explicitly user-deferred for future quality work, not waived as Production evidence.
+
+### Observed Docker source-build results
+
+The user confirmed `git pull --ff-only origin main` to `116730f8e48ffe6adf5574dd45153eeb0afbe44c`. Docker Desktop 4.90.0 / Engine 29.7.2 (`desktop-linux`, `linux/amd64`) built `mt5-persian-summary:stage13-dev` successfully. The Dockerfile's CPU-only `torch` installation completed with `torch-2.15.0+cpu`; `pip install -r requirements.txt` installed `pypdf-6.21.4`, `transformers-4.57.6` and the other application dependencies, and `pip check` printed **No broken requirements found**. Final BuildKit exported and unpacked the image; manifest list SHA-256 was `40376822ae7353b1e0167c211fad660af0c72e498e774750608c887f452de2b8`. No model weights were included.
+
+The user created `mt5_hf_cache`, then started `mt5-stage13-preview` with `--init`, **8 GiB memory cap**, **2 CPUs**, **256 PIDs**, `--security-opt no-new-privileges`, host-only `127.0.0.1:8003:8000` mapping and `env_type=production`. The created container began `1731aeb66b34` and Docker reported **Up ... (healthy)**. `GET /api/v1/health` returned `{"status":"ok"}` — process liveness, **not** loaded-model readiness or Production quality.
+
+### Live Docker Document Query verification
+
+The user's real `tests/e2e_document_query_smoke.py --base-url http://127.0.0.1:8003` output:
+
+| Source | `answer` | `focused_summary` |
+| --- | ---: | ---: |
+| TXT | PASS — 45.2 ms | PASS — 49.8 ms |
+| Selectable-text PDF | PASS — 49.1 ms | PASS — 44.9 ms |
+| DOCX | PASS — 150.0 ms | PASS — 124.2 ms |
+
+**6/6 normal queries PASSED**, with exact source evidence and real parser-established locations. **Four additional checks PASSED:** `not_found` abstention, `ambiguous` competing evidence without a guessed resolution, sanitized malformed-document HTTP 422 and duplicate query-field HTTP 422. The script also checks live Health and OpenAPI routes. Docker HTTP six-request median **49.47 ms** is a local micro-smoke metric, not general concurrency, throughput or SLA performance. Server RSS **NOT_MEASURED**; Production semantic quality **NOT_APPROVED**.
+
+Previous actual Windows Stage 13 verification remained: **87 focused pytest passed** and **478 full-suite pytest passed** (2 dependency deprecation warnings); fixed Development retrieval Recall@1/3 15/15 and Stage 13 11/11 synthetic status labels passed, with per-category exact-quote, no-answer, conflict and focused-summary metrics all 1.0. Python-only `tracemalloc` peak **251,140 bytes**; not native/model peak RSS. Real mT5 generative inference was neither part of the extractive Docker E2E nor exercised by it.
+
+### Scope-bound acceptance and release decision
+
+**Development engineering acceptance is COMPLETE:** tested offline/ASGI code, source-located query functionality across TXT/PDF/DOCX and both modes, explicit negative/ambiguous responses, input/error hardening, Development-only reproducible benchmarks, documented quality/latency/caveats, successful local Docker build with container liveness and local HTTP E2E. Existing Summarization endpoints remain in OpenAPI and prior full regressions passed.
+
+**Production release remains BLOCKED:** original Stage 10 quality gate (v6 medium real-project fact coverage **2/6**, target **≥3/6**, with other frozen gates and human factual review not passed), representative authorized real-Persian evaluation (Stage 9 proposed **30–50 documents and ≥100 human-labeled questions**), independent semantic accuracy/entailment review, OS peak RSS under load, cold/warm mT5 inference testing in this new image, Stage 9/10 fresh model comparison, and manual GitHub Docker workflow/GHCR publishing (**NOT RUN**, and not required to establish local Development delivery). Linux image dependency versions floated to compatible but newer revisions than Windows; reproducible production supply-chain pinning is still a separate task. The frozen holdout was not accessed for tuning or scored as completed.
+
+**Code changes in this final signoff: none.** Documentation only: `docs/IMPLEMENTATION_PROGRESS.md`, `docs/POST_MVP_DEVELOPMENT_PLAN.md`, this report and `README.md`. The new GitHub commit records observed user-run evidence, without falsely labeling unrun checks as passed. Next meaningful work is a separately scoped Production readiness/semantic-quality review, not another coding stage required to finish the current Development delivery.

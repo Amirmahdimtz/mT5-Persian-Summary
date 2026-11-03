@@ -69,3 +69,55 @@ This update adds a minimal guard *only* to the opt-in v5 source-sentence candida
 - Exact diff of the two uploaded raw v5 runs shows **only** the sentence **کارها:** 1. was removed from MVP medium and long; other selected sentences did not change. All six results have no error_code, and all stay within fixed encoded-token ceilings 40/80/120. Both documents still have distinct short, medium and long outputs.
 - **Provisional reference fact coverage remains short 1/6, medium 1/6, long 2/6** (assistant source-based labels). Medium is **still below** the frozen real-project Development gate >=3/6. The revised MVP long result still emits the semicolon-terminated excerpt 'کد هر مرحله کامل باشد؛' without its following qualification about placeholders; architecture medium similarly selects a semicolon-ended clause while excluding its continuation. This is a residual source-context/completeness concern, not proof of a new fabricated fact.
 - **Conclusion:** the specific numbered-list regression is fixed and verified on Windows; the original Stage 10 quality problem is **not** solved. Do not enable the opt-in v5 mode in Production, do not loosen acceptance gates or access holdouts. Avoid further punctuation heuristics without representative semantic review; first audit actual missing facts and cross-sentence scope, inspect the as-yet-unprovided raw default-v2 run for fair factual comparison, and obtain human claim-level assessment and distinct Persian field documents.
+
+## Full paired raw-output semantic audit — default mT5 v2 versus v5 v3 (2026-11-03)
+
+### Input provenance and integrity
+
+The user supplied the previously missing authentic-project Development **baseline run** `local_stage10_project_default_v2.json` and the **v3 comparator** `local_stage10_project_compare_default_v5_v3.json`. The earlier uploaded `local_stage10_project_extract_v5_v3.json` was also directly re-opened for this audit. All artifacts were inspected as JSON; the comparator and both full raw runs agree on fixed dataset SHA-256 `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c`, split `dev`, and exactly 6 successful paired source/tier results (2 distinct project Markdown sources × 3 tiers). Canonical hash verification (`json.dumps(sort_keys=True,ensure_ascii=False,separators=(",",":"))` with UTF-8 SHA-256):
+
+- Original default mT5 v2: `e4846212186d4fea7afd21b39ffb851328350dd145688480bb56c7555b597b86`, matches `baseline_runs_sha256`; `inference_mode=mt5_generate`.
+- Opt-in v5 v3: `f4f3795213bfcb45cfc3da40fcaebc61aedfb614d0375f32395a9c03084e8537`, matches `candidate_runs_sha256`; `inference_mode=source_sentence_only_no_model_generate`.
+- All 6 baseline/candidate pairs contain nonempty text and no `error_code`; all 6 pairwise strings are different. The two methods use the same pinned model metadata, but **only the baseline invokes mT5 generation**. The v5 source-only text is not an improved mT5 decoder.
+- No holdout was accessed; the original two development Markdown documents and fixed reference fact definitions were used for source inspection. The report reflects an **assistant-authored semantic assessment**, not an independently adjudicated human quality score.
+
+### Actual output and tier distinctions
+
+| Source | Default short / medium / long encoded tokens | v5 short / medium / long encoded tokens | Default distinct tier strings | v5 distinct tier strings |
+| --- | --- | --- | ---: | ---: |
+| `real_architecture_guide` | 24 / 24 / 24 | 33 / 74 / 118 | **1 of 3** | **3 of 3** |
+| `real_mvp_plan` | 39 / 44 / 44 | 31 / 74 / 113 | **2 of 3** | **3 of 3** |
+
+All 12 outputs respect the respective fixed length ceilings `short=40`, `medium=80`, `long=120` encoded tokens. Both v5 sources have different `short` and `long` summaries; only the MVP source does so for default mT5. This is a two-source observation, not the frozen five-case synthetic tier gate. No baseline or v5 output here repeated Unicode four-grams according to the uploaded comparator.
+
+**Verbatim baseline snippets (now available):**
+
+- Architecture, all three tiers: `برای انتقال استاندارد معماری به چتGPT یا هر توسعه دهنده کافی است.` The claim paraphrases the original document's self-described purpose, but omits every one of its three frozen substantive facts: binding standard, prohibition on unnecessary interfaces, and `@inject` constructor DI.
+- MVP, short: `برای پیاده سازی سرویس خلاصه سازی اسناد فارسی با MT۵ طراحی شد. برای اجرای سورس Repository پروژه قواعد اجرا را` — the second sentence is syntactically **unfinished**.
+- MVP, medium and long (identical): `برای پیاده سازی سرویس خلاصه سازی اسناد فارسی با MT۵ طراحی شد. برای اجرای سورس Repository پروژه قواعد اجرا را بررسی می کند.` The source supports a staged implementation plan but does **not** state this particular agent/action in this phrasing. The second sentence is semantically awkward and a **potential unsupported or distorted paraphrase**, not a proven hallucination-rate number without reviewer adjudication.
+
+**v5 remaining context risk:** the targeted v3 patch removed the malformed `**کارها:** 1.` phrase; the v3 MVP long excerpt still ends with `کد هر مرحله کامل باشد؛` while the original source continues with a condition rejecting hypothetical files, placeholders, TODO and pseudo-code. The architecture medium excerpt `در خروجی کدنویسی، فایل‌ها را کامل و قابل‌اجرا تولید کن؛` likewise stops before the original's follow-up. These are *source-derived but incomplete* fragments, illustrating that extractive lexical matching does not prove stand-alone semantic sufficiency.
+
+### Frozen Development fact audit (assistant-only labels)
+
+The exact six source facts are from `benchmarks/fixtures/real_project_documents_v1.json`. Each source/tier has the same three expected facts; values below represent **assistant-reviewed** meaning, not human-independent scoring.
+
+| Source / fixed fact | Default short | Default medium | Default long | v5 short | v5 medium | v5 long |
+| --- | --- | --- | --- | --- | --- | --- |
+| Architecture: `mandatory_standard` | omitted | omitted | omitted | omitted | omitted | **covered** |
+| Architecture: `no_unnecessary_interface` | omitted | omitted | omitted | omitted | omitted | omitted |
+| Architecture: `constructor_injection` | omitted | omitted | omitted | omitted | omitted | omitted |
+| MVP: `file_formats` (TXT/PDF/DOCX) | omitted | omitted | omitted | omitted | omitted | omitted |
+| MVP: `multi_file` | omitted | omitted | omitted | **covered** | **covered** | **covered** |
+| MVP: `eight_stages` | omitted | omitted | omitted | omitted | omitted | omitted |
+| **Total / 6** | **0/6** | **0/6** | **0/6** | **1/6** | **1/6** | **2/6** |
+
+For **medium**, baseline 0/6 and v5 1/6 both fail the frozen authentic Development gate `>=3/6`. These totals reflect only six unique frozen source facts repeated at three output lengths; the 18 assessments per method are **not independent source facts**. No separate independent claim segmentation, direct textual-entailment verification, numerical/date/polarity adjudication or `score` command was performed. Unsupported-claim rates for both candidates remain **NOT_SCORED**, rather than a misleading zero. The experimental v5 does not demonstrate reliable negation, hypothetical, conditional or quotation scope on distinct external reports.
+
+### Decision, reproducibility and next action
+
+**Stage 10 remains In Progress / Quality Blocked (Production NO-GO).** The complete baseline confirms poor coverage and poor length differentiation in default mT5, and v5 offers a controlled extractive alternative with better literal selection but still fails the real-project medium fact gate. The observed mT5 generation durations around 60–85 seconds per output versus warm v5 milliseconds are not comparable model-speed measurements: one performs generation and the other does not; cold-start/peak RAM are unstandardized.
+
+No source/config/benchmark fixture/holdout/API/default flags were changed for this review. User's latest proven Windows verification for the v3 source patch: focused **60 passed**, full **403 passed / 2 warnings**, `pip check` and `compileall` successful. Those tests predate this documentation-only update; tests were **not rerun** for this report.
+
+Use the **existing** Stage 9 `quality_benchmark review-template` mechanism against the unchanged baseline-v2 and v5-v3 raw files, but only complete factual and claim annotations after independent source examination. Do not copy assistant labels into a file named "independently verified". Keep private/local output JSON files outside Git history. Prioritize a *general* information-coverage and cross-sentence-context design on varied authorized Persian documents rather than tuning to two Markdown guides; preserve holdout isolation and frozen gates.

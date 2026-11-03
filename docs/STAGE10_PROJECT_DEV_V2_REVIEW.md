@@ -177,3 +177,34 @@ All 6 baseline-v6 pairs are reported successful and text-different. All candidat
 **Interpretation limits:** v6 architecture short fell from 33 to 13 tokens versus v5 v3, and MVP long now uses the full 120-token ceiling. Neither change proves improved fact coverage or polarity/number/date safety. The six-pair comparator compares *default mT5 to v6*, not *v5 v3 to v6*; values at the same token counts do not imply equal strings. v6 remains source-only (`source_sentence_final` flag) and is not a better mT5 generator. Cold-start times, independent human claims, the frozen medium >=3/6 fact gate, and the cross-document semantic gate remain unverified.
 
 **Decision: Stage 10 In Progress / Production NO-GO.** Do not further tune the selector until the raw v6 v2 result is inspected against the original two Development source documents and v5 v3, and independently reviewed. No Production settings or holdouts changed as a consequence of these green engineering tests.
+
+## v6 v2 actual raw-output assessment (2026-11-03)
+
+The previously missing `local_stage10_project_extract_v6_v2.json` has now been supplied and inspected. Its canonical sorted UTF-8 JSON hash `5a9ed374ca43cabf2119f4b2b45d604953225cc1f275185eccef5cc0a9f1a2bc` **exactly matches** `candidate_runs_sha256` in the uploaded `local_stage10_project_compare_default_v6_v2.json`. The baseline hash remains `e4846212186d4fea7afd21b39ffb851328350dd145688480bb56c7555b597b86`, and all artifacts use the fixed Development dataset SHA-256 `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c`.
+
+Actual text has now been compared against the uploaded v5 v3 source-extractive run and both original authentic engineering Markdown sources. All **16** output lines across the six v6 v2 responses occur **verbatim** in their corresponding source documents; there are no CLI failure records, and the 40/80/120 encoded-token ceilings are satisfied. This only validates textual provenance, not independent meaning/scope, entailment or unsupported-claim rate. No holdout text was used.
+
+| Source | Tier | v5 v3 tokens | v6 v2 tokens | Key v6 meaning |
+| --- | --- | ---: | ---: | --- |
+| Architecture | short | 33 | **13** | Explicitly prohibits unnecessary service/repository interfaces |
+| Architecture | medium | 74 | **69** | Prohibits unwarranted architecture transformations and unnecessary interfaces |
+| Architecture | long | 118 | **114** | Adds mandatory-standard status; contains incidental conditional Alembic/DB guidance |
+| MVP plan | short | 31 | **31** | Multi-file handling; exact same text as v5 |
+| MVP plan | medium | 74 | **74** | Multi-file handling and roadmap context; exact same text as v5 |
+| MVP plan | long | 113 | **120** | Adds direct-text and TXT/PDF/DOCX support, preserves multi-file; uses full token budget |
+
+### Source-by-source frozen fact labels (assistant-only, not independently approved)
+
+| Source / fact ID | v5 short | v5 medium | v5 long | v6 short | v6 medium | v6 long |
+| --- | --- | --- | --- | --- | --- | --- |
+| Architecture: `mandatory_standard` | omitted | omitted | covered | omitted | omitted | covered |
+| Architecture: `no_unnecessary_interface` | omitted | omitted | omitted | **covered** | **covered** | **covered** |
+| Architecture: `constructor_injection` | omitted | omitted | omitted | omitted | omitted | omitted |
+| MVP plan: `file_formats` | omitted | omitted | omitted | omitted | omitted | **covered** |
+| MVP plan: `multi_file` | covered | covered | covered | covered | covered | covered |
+| MVP plan: `eight_stages` | omitted | omitted | omitted | omitted | omitted | omitted |
+| **Total / six source facts** | **1/6** | **1/6** | **2/6** | **2/6** | **2/6** | **4/6** |
+
+This is **a measurable improvement in provisional coverage**, not a frozen-gate pass: v6 `medium=2/6` is **below >=3/6** required by the real-project Development acceptance criterion. Architecture medium and long favor multiple prohibitions over constructor DI; MVP long allocates scarce 120 tokens to a generic target-tree sentence while omitting eight-stage structure. v6 short is concise but focuses on one architecture rule rather than a representative introduction. A source-extractive approach may still omit nearby qualifiers or imply misleading context when sentences are separated from sections; the source's conditional Alembic rule should not be interpreted as requiring a database for the current MVP. `inference_mode=source_sentence_only_no_model_generate` means **this did not improve the mT5 generation model**.
+
+**Verification and decision:** The last user-run Windows code validation at `1132955c7c6789e9e17e916a1ec4e0eccc2ef520` was 21 focused tests passed, full suite 408 passed / 2 third-party deprecation warnings. No new tests or model inference were done for this report. `semantic_review_status=NOT_REVIEWED` and unsupported-claim rate **NOT_SCORED**; no independent semantic judgments or peak-RAM evidence. No Production GO, model/config/API change, new fixture tuning or holdout use. Further refinement should be assessed on authorized diverse Persian sources and independently verified claims rather than tuning against the two Engineering Markdown documents.

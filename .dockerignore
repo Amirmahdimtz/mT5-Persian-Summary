@@ -29,6 +29,7 @@ models
 *.docx
 *.txt
 !requirements.txt
+!constraints/docker-linux-cpu-2026-11.txt
 tests
 docs
 README.md

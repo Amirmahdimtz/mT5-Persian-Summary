@@ -363,3 +363,10 @@ curl.exe -sS http://127.0.0.1:8003/api/v1/health
 **Docker Development verification (2026-11-03):** Windows Docker Desktop Linux build for `mt5-persian-summary:stage13-dev` succeeded, container reported `healthy`, `GET /api/v1/health` returned `{"status":"ok"}`, and the current-source Docker E2E passed all six TXT/text-PDF/DOCX × `answer`/`focused_summary` combinations plus negative/conflict and safe validation checks (six-request median **49.47 ms** on the user's machine). Windows full pytest also passed **478 tests**. **Not tested**: real mT5 model inference inside the new image, manual GHCR workflow/publication, process peak RSS under load, independent real Persian document semantic quality. The published legacy `:stage8` image was not modified. Development engineering signoff is **not Production GO**.
 
 The Dockerfile bundles source/dependencies, **not** mT5 weights. Live Docker, memory/RSS and real Persian document stress tests must be run on the intended machine before any release signoff. Document Query works without a model download; regular summarization still uses the lazy mT5 provider.
+
+## Production Readiness & Quality Signoff — not approved
+
+**Development stages 1–13 are delivered; Production remains NO-GO.** The frozen Stage 10 factual-coverage gate was not met (latest real-project medium score 2/6 vs required 3/6), and the earlier Docker Document Query test never loaded mT5. A representative independently human-reviewed dataset, real Docker model generation, peak container memory, supply-chain checks and public API authentication/security review are still missing.
+
+See [Production Readiness & Quality Signoff](docs/PRODUCTION_READINESS.md) for exact Windows/Docker commands, the new version-pinned Docker candidate, real-model/cgroup probe, fail-closed machine-readable release screen, non-overwriting local reports and independent human-review template. **The release gate never automatically approves Production, and no public deployment or image publication has been authorized.**
+

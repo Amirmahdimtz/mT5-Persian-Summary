@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "review_scope": "authorized_real_persian_documents",
+  "documents_reviewed": null,
+  "labeled_questions": null,
+  "independent_reviewer_ids": [],
+  "independent_review_approved": false,
+  "security_review_approved": false,
+  "review_evidence_sha256": null,
+  "representative_retrieval_recall_at_3": null,
+  "stage10_frozen_development_gates": {
+    "synthetic_medium_fact_total": 19,
+    "synthetic_medium_facts_covered": null,
+    "critical_direction_inversions": null,
+    "synthetic_medium_fact_distortions": null,
+    "synthetic_unsupported_claim_rate": null,
+    "distinct_short_long_case_count": null,
+    "real_project_medium_fact_total": 6,
+    "real_project_medium_facts_covered": null,
+    "critical_fabricated_facts": null,
+    "architecture_duplicate_fourgram_fraction": null
+  }
+}

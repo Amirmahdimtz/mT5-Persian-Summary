@@ -4,6 +4,12 @@ name: Stage 13 development Docker preview build
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_preview:
+        description: 'Publish the development preview to GHCR after explicit approval'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -56,12 +62,14 @@ jobs:
             | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['status']=='found'; assert d['answer']==d['evidence'][0]['text']; assert d['evidence'][0]['paragraph']==1"
 
       - name: Authenticate to GHCR
+        if: inputs.publish_preview == true
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
 
       - name: Publish validated image
+        if: inputs.publish_preview == true
         shell: bash
         env:
           IMAGE: ${{ steps.image.outputs.name }}

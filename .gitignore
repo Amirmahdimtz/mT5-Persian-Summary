@@ -23,3 +23,7 @@ build/
 /local_stage11_*.json
 /local_stage12_*.txt
 /local_stage13_*
+
+# Production readiness runs and private reviewer attestations
+/local_production_*
+/local_prod_*

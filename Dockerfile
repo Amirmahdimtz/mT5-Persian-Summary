@@ -13,14 +13,17 @@ WORKDIR /app
 # Install CPU-only PyTorch first to avoid accidentally resolving CUDA wheels.
 # Keep the dependency layer independent of application source changes.
 COPY requirements.txt ./requirements.txt
+# Linux/amd64 Python 3.12 dependency versions observed in the successful
+# Stage 13 Docker build. Constraints pin versions, not wheel hashes/security.
+COPY constraints/docker-linux-cpu-2026-11.txt ./constraints/docker-linux-cpu-2026-11.txt
 # pip >=25.2 can resume interrupted large downloads. Isolate the cache from
 # prior failed wheel responses; do not bypass PyTorch wheel hash verification.
 RUN --mount=type=cache,id=mt5-pip-v2,target=/root/.cache/pip,sharing=locked \
     python -m pip install --timeout 180 --retries 8 --upgrade 'pip>=25.2,<27' \
     && python -m pip install --timeout 180 --retries 8 --resume-retries 12 \
-        'torch>=2.6,<3.0' --index-url https://download.pytorch.org/whl/cpu \
+        'torch>=2.6,<3.0' --constraint constraints/docker-linux-cpu-2026-11.txt --index-url https://download.pytorch.org/whl/cpu \
     && python -m pip install --timeout 180 --retries 8 --resume-retries 12 \
-        -r requirements.txt \
+        -r requirements.txt --constraint constraints/docker-linux-cpu-2026-11.txt \
     && python -m pip check
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin app \

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import PurePath
 from typing import Annotated
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -16,6 +15,12 @@ from src.application.summarization.dtos.summarization_dto import (
     TextSummarizationResponseDto,
 )
 from src.application.summarization.upload_limit_middleware import configured_upload_budget
+from src.application.upload_validation import (
+    MAX_FILE_BYTES as _MAX_FILE_BYTES,
+    READ_CHUNK_BYTES as _READ_CHUNK_BYTES,
+    read_upload_async as _shared_read_upload_async,
+    validate_upload as _validate_upload,
+)
 from src.core.services.summarization.document_extraction_service import (
     CorruptedDocumentError,
     DocumentExtractionError,
@@ -54,14 +59,6 @@ from src.infrastructure.ml.mt5_model_provider import (
 from src.infrastructure.utils.config_reader import ConfigReader
 
 
-_MAX_FILE_BYTES = DocumentExtractionService.MAX_INPUT_BYTES
-_READ_CHUNK_BYTES = 64 * 1024
-_MAX_FILENAME_CHARACTERS = 255
-_SUPPORTED_MIME = {
-    ".txt": "text/plain",
-    ".pdf": "application/pdf",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-}
 _SAFE_ERROR_CODES = frozenset({
     "DocumentExtractionError", "UnsupportedDocumentTypeError", "EmptyDocumentError",
     "InvalidDocumentError", "InvalidTextEncodingError", "CorruptedDocumentError",
@@ -95,48 +92,11 @@ def _raise_service_error(error: Exception) -> None:
     raise _http_error(status_code, type(error).__name__, message) from error
 
 
-def _validate_upload(upload: UploadFile) -> str:
-    filename = upload.filename
-    if (not isinstance(filename, str) or not filename or len(filename) > _MAX_FILENAME_CHARACTERS
-            or filename != filename.strip() or filename in (".", "..")
-            or any(c in filename for c in "/\\")
-            or any(ord(c) < 32 or ord(c) == 127 for c in filename)):
-        raise _http_error(400, "InvalidFilename", "Filename must be a plain, safe basename.")
-    try:
-        filename.encode("utf-8", errors="strict")
-    except UnicodeEncodeError:
-        raise _http_error(400, "InvalidFilename", "Filename must be valid Unicode.") from None
-    suffix = PurePath(filename).suffix.lower()
-    if suffix not in _SUPPORTED_MIME:
-        raise _http_error(415, "UnsupportedDocumentTypeError", "Supported types: .txt, .pdf, .docx.")
-    media_type = (upload.content_type or "").split(";", 1)[0].strip().lower()
-    if media_type not in ("", "application/octet-stream", _SUPPORTED_MIME[suffix]):
-        raise _http_error(415, "UnsupportedMediaType", "File media type does not match extension.")
-    return filename
-
-
 async def _read_upload_async(upload: UploadFile, available_bytes: int) -> bytes:
-    """Read no more than the smaller of per-file and aggregate remaining budget."""
-    allowed = min(_MAX_FILE_BYTES, available_bytes)
-    if allowed < 1:
-        raise _http_error(413, "AggregateUploadLimit", "Aggregate upload limit exceeded.")
-    if upload.size is not None and upload.size > _MAX_FILE_BYTES:
-        raise _http_error(413, "FileTooLarge", "File exceeds 20 MiB.")
-    if upload.size is not None and upload.size > allowed:
-        raise _http_error(413, "AggregateUploadLimit", "Aggregate upload limit exceeded.")
-
-    buffer = bytearray()
-    while True:
-        chunk = await upload.read(min(_READ_CHUNK_BYTES, allowed - len(buffer) + 1))
-        if not chunk:
-            break
-        buffer.extend(chunk)
-        if len(buffer) > allowed:
-            code = "FileTooLarge" if allowed == _MAX_FILE_BYTES else "AggregateUploadLimit"
-            raise _http_error(413, code, "Upload size limit exceeded.")
-    if not buffer:
-        raise _http_error(400, "EmptyDocumentError", "File must not be empty.")
-    return bytes(buffer)
+    # Preserve the existing test seam and configurable per-file limit.
+    return await _shared_read_upload_async(
+        upload, available_bytes, max_file_bytes=_MAX_FILE_BYTES
+    )
 
 
 def _file_dto(result: FileSummaryResult) -> FileSummaryResponseDto:

@@ -66,6 +66,7 @@ class UploadBodyLimitMiddleware:
         self._paths = {
             f"{api_prefix}/summarization/file",
             f"{api_prefix}/summarization/files",
+            f"{api_prefix}/document_query/file",
         }
         self._body_budget = max_total_bytes + MULTIPART_OVERHEAD_BYTES
 

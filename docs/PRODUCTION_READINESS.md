@@ -99,3 +99,58 @@ When *real* independent review exists, the gate can read it using the optional a
 - Security/authentication/gateway and a fresh threat model before **any publicly exposed deployment**.
 
 **No new Docker image was built, model weights downloaded, GHCR image published, production service deployed, or real private document processed in this chat. Production status: NO-GO.**
+
+## E. Verified Windows + pinned Docker real-model probe (2026-11-03)
+
+**Updated verification:** The previously documented "NOT RUN" steps above were **run on the user's Windows + Docker Desktop system** after pulling `main` at `7e4a32d5ab3bf9961d420ffbe1cb40d76e389f63`. They are preserved as historical pre-run instructions, while this section reflects verified current evidence. **Overall Production remains NO-GO**.
+
+### Engineering and constrained Docker
+
+- Targeted release/Stage13/Stage8 regression: **48 passed, 0 failed, 1 third-party warning in 5.20s**. Full regression: **502 passed, 0 failed, 2 third-party warnings in 14.07s**. `pip check` succeeded; `compileall` reported no errors.
+- Constrained `docker build --progress=plain -t mt5-persian-summary:prod-candidate .` **succeeded**; installed packages matched prior locked version snapshot, with `torch 2.15.0+cpu`, `pypdf 6.21.4`, `transformers 4.57.6`. New image manifest-list digest: `sha256:990804bc1769f2cca4e50839e5832190908f24478e8c562b766a2a8cfab973db`.
+- The new candidate `mt5-prod-candidate` (ID prefix `2425662fe784`) started with 8 GiB memory, 2 CPUs, 256 PIDs, no-new-privileges and **loopback-only** `127.0.0.1:8004`. Health endpoint replied HTTP 200 `{"status":"ok"}`. Initial Docker health was `starting` seconds after creation, not a failed health result.
+
+### Real mT5 inference and resource results
+
+The opt-in `tests/production_model_probe.py` returned `status=STRUCTURAL_PASS`, `model_inference_exercised=true`, and **four actual text-summarization HTTP 200 responses** on one synthetic Persian sample.
+
+| Phase | Elapsed (milliseconds) | Output characters |
+| --- | ---: | ---: |
+| First observed | **39,631.82** | 68 |
+| Warm repeat | **5,790.75** | 68 |
+| Concurrent request 1 | **6,378.61** | 68 |
+| Concurrent request 2 | **10,681.34** | 68 |
+
+All four output SHA-256s were identical: `c9c9e0ddb6c8f99e752ce1efc2d563a6d238fd9669f90948974d6e191d111995`. This confirms **output consistency only for this identical synthetic input**, not semantic correctness. "First observed" is **not guaranteed cold start**. Parallel admission showed two successful callers, not proof of a traffic/SLA limit or wide concurrency capacity.
+
+The Linux container cgroup before inference: `current_bytes=60,055,552`, `peak_bytes=65,036,288`. After inference: `current_bytes=1,163,972,608`, **lifetime `peak_bytes=1,168,732,160`** (~1.09 GiB) against `limit_bytes=8,589,934,592` (8 GiB). This is a cgroup lifetime high-water mark on a small synthetic workload, **not a standalone peak host RSS or worst-case memory footprint**.
+
+Runtime `dependency_snapshot.status=MATCH`, `pin_count=48`, `mismatch_names=[]`, and constraints SHA-256 `479795f6103a79cdaf9403cac4c0b13a7a867ea7fca5a16fabf6f1bca8178a06`. This confirms runtime version parity; it does **not** replace wheel-hash, CVE or license assurance.
+
+### Automated release decision
+
+With `local_stage13_query_dev_metrics_v1.json` and `local_production_model_probe_v2.json`, the user ran the release gate and obtained:
+
+```json
+{
+  "decision": "NO_GO",
+  "production_go": false,
+  "checks": {
+    "frozen_development_metrics": true,
+    "real_model_http_and_cgroup_memory": true,
+    "private_only_deployment": true,
+    "independent_real_document_review": false
+  },
+  "blocked_checks": ["independent_real_document_review"]
+}
+```
+
+This is the **expected and correct fail-closed result**. The model/memory packaging check now passes; an independently verified, representative Persian factual and evidence review is still **NOT RUN**. The last frozen Stage 10 real-project medium fact coverage remained **2/6 vs required ≥3/6** with no new adjudication, so no assertion of model factual quality has been earned. Even a future all-true machine screen returns `MANUAL_SIGNOFF_REQUIRED` with `production_go=false`, never an automatic deploy authorization.
+
+### Next verification and non-waivable blockers
+
+1. Collect **authorized** representative Persian TXT, selectable-PDF and DOCX documents (~30–50) and **≥100** labeled questions covering positive, missing, conflicts, dates, people and amounts; independently judge supporting quotes and the model's atomic factual claims. Keep originals/reviewer identities local, hash the private review evidence, fill `docs/PRODUCTION_REVIEW_TEMPLATE.json` only with actual results.
+2. Reassess the frozen Stage 10 summarization quality gates without changing thresholds, Development labels or opening sealed Holdout to tune. The latest measured medium real-project score **2/6** has not met **≥3/6**.
+3. Perform separately scoped authenticated gateway/rate-limiting, load/long-document resource characterization and software supply-chain security review before any public endpoint or production release.
+
+**New work in this update is documentation-only.** No further Docker build, model call, benchmark, human approval, GHCR publication or deployment was performed by the assistant; the user supplied the test and probe evidence. Current status: **Production Readiness In Progress / NO-GO**, Stage 13 Development **Completed**.

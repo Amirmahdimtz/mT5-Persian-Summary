@@ -1,6 +1,6 @@
-# Manual fallback for hosts that cannot reach the official PyTorch CPU wheel CDN.
+# Manually triggered Development-only source image preview (not Production GO).
 # Builds exactly the repository Dockerfile; does not download model weights.
-name: Stage 8 Docker remote build
+name: Stage 13 development Docker preview build
 
 on:
   workflow_dispatch:
@@ -22,7 +22,7 @@ jobs:
         id: image
         shell: bash
         run: |
-          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}:stage8" >> "$GITHUB_OUTPUT"
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}:stage13-dev" >> "$GITHUB_OUTPUT"
 
       - name: Build image from official CPU-only dependencies
         shell: bash
@@ -34,9 +34,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker run -d --name mt5-stage8-ci --memory 6g --cpus 2 \
+          docker run -d --name mt5-stage13-ci --memory 6g --cpus 2 \
             -p 127.0.0.1:18000:8000 "${{ steps.image.outputs.name }}"
-          trap 'docker logs --tail 80 mt5-stage8-ci || true; docker rm -f mt5-stage8-ci || true' EXIT
+          trap 'docker logs --tail 80 mt5-stage13-ci || true; docker rm -f mt5-stage13-ci || true' EXIT
           ready=0
           for attempt in $(seq 1 30); do
             if curl -fsS --max-time 5 http://127.0.0.1:18000/api/v1/health > /dev/null; then
@@ -47,7 +47,13 @@ jobs:
           done
           test "$ready" -eq 1
           curl -fsS --max-time 5 http://127.0.0.1:18000/openapi.json \
-            | python3 -c "import json,sys; paths=json.load(sys.stdin)['paths']; assert all('/api/v1/summarization/'+name in paths for name in ('text','file','files'))"
+            | python3 -c "import json,sys; paths=json.load(sys.stdin)['paths']; assert all('/api/v1/summarization/'+name in paths for name in ('text','file','files')); assert '/api/v1/document_query/file' in paths"
+          printf '%s' 'جلسه بعدی در تاریخ ۱۴ آبان ۱۴۰۵ برگزار می‌شود.' > /tmp/stage13_query.txt
+          curl -fsS --max-time 20 \
+            -F 'file=@/tmp/stage13_query.txt;type=text/plain' \
+            -F 'query=تاریخ جلسه بعدی' \
+            http://127.0.0.1:18000/api/v1/document_query/file \
+            | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['status']=='found'; assert d['answer']==d['evidence'][0]['text']; assert d['evidence'][0]['paragraph']==1"
 
       - name: Authenticate to GHCR
         shell: bash

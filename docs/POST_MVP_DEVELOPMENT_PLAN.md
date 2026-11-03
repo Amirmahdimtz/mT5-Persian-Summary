@@ -5,7 +5,7 @@
 > **Branch:** `main`  
 > **Plan Version:** 1.0  
 > **Created:** 2026-11-01  
-> **Status:** Stage 9 completed (engineering baseline); Stage 10 quality acceptance deferred by user for development progression (Production NO-GO); Stage 11 completed (Development engineering verification); Stage 12 completed (Development engineering and live HTTP verification); Stage 13 not started  
+> **Status:** Stage 9 completed (engineering baseline); Stage 10 quality acceptance deferred by user for development progression (Production NO-GO); Stage 11 completed (Development engineering verification); Stage 12 completed (Development engineering and live HTTP verification); Stage 13 implementation in progress (new Development evaluation and E2E, Windows/Docker acceptance pending)  
 > **Architecture:** [Service_Architecture_Guide_FA.md](../Service_Architecture_Guide_FA.md)  
 > **MVP Plan:** [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md)  
 > **Implementation Record:** [IMPLEMENTATION_PROGRESS.md](IMPLEMENTATION_PROGRESS.md)
@@ -27,13 +27,15 @@
 | **10** | General Summarization Quality Improvement | کیفیت خلاصه | 9 | Pipeline بهبودیافته با Benchmark مقایسه‌ای | Quality-limited; user accepted deferral for development progression (Production NO-GO) |
 | **11** | Evidence-aware Extraction & Retrieval | Document Query | 9؛ اجزای استخراج موجود | بازیابی بخش‌های مرتبط همراه Source Location | Completed (Development engineering: 429 tests passed; 15/15 Recall@1 & Recall@3) |
 | **12** | Document Query API & Answering | Document Query | 11؛ استفاده مجدد از اجزای Stage 10 در صورت نیاز | Endpoint مستقل برای `answer` و `focused_summary` | Completed (Development: 460 full-suite tests passed; live TXT source-grounded answer verified) |
-| **13** | Quality Evaluation, Hardening & Delivery | هر دو | 10 و 12 | تست End-to-End، معیارهای کیفی و مستندات تحویل | Not Started |
+| **13** | Quality Evaluation, Hardening & Delivery | هر دو | 10 و 12 | تست End-to-End، معیارهای کیفی و مستندات تحویل | In Progress (Development benchmark + source-only E2E added; Windows/Docker/semantic QA pending) |
 
 **Stage 10 experiment record:** [STAGE10_EXPERIMENT_V1.md](STAGE10_EXPERIMENT_V1.md) — v4 real-document Development gain did not pass frozen Synthetic gates (critical direction inversions and identical length tiers); v5 opt-in source-only extraction is a diagnostic experiment awaiting actual Windows verification and independent review. No Production GO.
 
 **Stage 11 implementation record:** [STAGE11_RETRIEVAL_REPORT.md](STAGE11_RETRIEVAL_REPORT.md) — model-free structured TXT/PDF/DOCX extraction and Development-only lexical evidence ranking, without a Stage 12 HTTP endpoint. Windows verification is complete (85 targeted tests passed, 429 full-suite tests passed with 2 deprecation warnings, and 15/15 exact source-quote retrievals at both Recall@1 and Recall@3). Stage 10's existing quality threshold remains unmet; the user's approval only authorizes proceeding with development.
 
 **Stage 12 implementation:** [STAGE12_DOCUMENT_QUERY_REPORT.md](STAGE12_DOCUMENT_QUERY_REPORT.md) — independent evidence-only answer and focused-summary API; no mT5 generation. Development acceptance verified: 31 Stage 12 tests passed, 460 full-suite tests passed, and a live TXT query returned a source-identical answer with paragraph=1.
+
+**Stage 13 evaluation/delivery record:** [STAGE13_FINAL_EVALUATION.md](STAGE13_FINAL_EVALUATION.md) — 11 Development-only query quality labels plus frozen Stage 11 Recall@K, true source/excerpt checks, non-overwriting benchmark outputs, live TXT/PDF/DOCX HTTP E2E for both query modes, security/concurrency tests, documented current-source Docker preview. Do not treat synthetic quote accuracy, HTTP 200 or a Docker build as independent semantic Production GO. Stage 10 remains below its frozen medium-fact coverage gate.
 
 **ترتیب اجرایی پیش‌فرض:** `9 → 10 → 11 → 12 → 13`. پس از Stage 9، فعالیت‌های Stage 10 و طراحی Stage 11 از نظر فنی می‌توانند با هماهنگی مستقل شوند؛ برای Commitهای مستقیم روی `main`، تغییرات باید کنترل‌شده و بدون overwrite انجام شوند.
 

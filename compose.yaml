@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: mt5-persian-summary:stage8
+    image: mt5-persian-summary:stage13-dev
     init: true
     ports:
       - "127.0.0.1:8000:8000"

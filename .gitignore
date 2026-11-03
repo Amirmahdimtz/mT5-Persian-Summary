@@ -18,3 +18,8 @@ build/
 
 # Stage 10 candidate outputs and human review files (never commit input text)
 /local_stage10_*.json
+
+# Local Stage 11–13 reports and document-query smoke inputs (may contain private data)
+/local_stage11_*.json
+/local_stage12_*.txt
+/local_stage13_*

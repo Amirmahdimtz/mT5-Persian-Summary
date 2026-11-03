@@ -4,7 +4,7 @@
 
 This project accepts Persian text or `TXT`, text-based `PDF`, and `DOCX` documents and returns a Persian summary using [`nafisehNik/mt5-persian-summary`](https://huggingface.co/nafisehNik/mt5-persian-summary). It also supports multiple documents in a single request, returning **a separate summary for each file**.
 
-> **Status: completed and tested MVP.** A successful API response does **not** guarantee a faithful summary. The model can omit important details, misstate facts, or generate an excessively short summary for a long document. **Always compare the generated summary with the original source before business or organizational use.**
+> **Status: completed and tested MVP; Stage 11/12 Document Query Development acceptance completed; Stage 13 evaluation in progress.** A successful API response does **not** guarantee a faithful summary. The model can omit important details, misstate facts, or generate an excessively short summary for a long document. **Always compare the generated summary with the original source before business or organizational use.**
 
 ## Requirements at a glance
 
@@ -20,6 +20,8 @@ This project accepts Persian text or `TXT`, text-based `PDF`, and `DOCX` documen
 **Recommended:** If you just want to try the service, follow the Docker quick start. You do not need to clone the repository or install Python.
 
 ## 1. Quick start with Docker (recommended)
+
+**Image scope:** the published `:stage8` GHCR tag is a legacy MVP image; do not assume it includes Document Query. To exercise current Stage 12/13 code, build from the latest source as described below. This does not imply Production semantic-quality GO.
 
 A prebuilt image is available through GHCR. Start Docker on the machine where you want to use the API, then run these commands in **Windows PowerShell**. The same `docker` commands work in a Linux/macOS shell.
 
@@ -63,7 +65,7 @@ Alternatively, enter `http://127.0.0.1:8002/docs` directly into your browser's a
 
 ## 2. Try it in Swagger without writing code
 
-The Swagger page at `http://127.0.0.1:8002/docs` exposes three endpoints:
+The **legacy `:stage8` image** Swagger page at `http://127.0.0.1:8002/docs` exposes three summarization endpoints. Current source builds additionally expose `POST /api/v1/document_query/file` (see the Stage 13 section below):
 
 | Endpoint | Purpose | Input |
 | --- | --- | --- |
@@ -301,3 +303,61 @@ More technical details: [Implementation progress](docs/IMPLEMENTATION_PROGRESS.m
 docker stop mt5-persian-summary
 docker start mt5-persian-summary
 ```
+
+
+## Stage 13 — Document Query quality evaluation and current-source delivery
+
+**Feature status:** Stage 11/12 Development engineering acceptance completed. Stage 13 evaluation/hardening is underway; **Production semantic-quality GO is not granted**. The published `:stage8` image is legacy and need not contain the newer Document Query feature.
+
+The current source adds `POST /api/v1/document_query/file` (multipart/form-data): one required TXT/text-PDF/DOCX upload and one required query (1–512 characters). `mode=answer` (default) returns verbatim source evidence; `mode=focused_summary` concatenates only relevant source excerpts within 320/680/1200-character budgets for `short`/`medium`/`long`. `summary_length` is invalid with `answer`, and unknown/duplicate fields are rejected. `found` returns source citations with true PDF page/TXT-DOCX paragraph/table locations; `not_found` returns no answer or evidence; `ambiguous` returns competing evidence but no guessed answer. Both modes are **extractive**: neither invokes mT5 or guarantees semantic entailment. The original three Summarization endpoints require no query.
+
+### Windows PowerShell: current-source tests and HTTP E2E
+
+Run from the repository root:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = "development"
+if (-not (Test-Path ".\.venv\Scripts\python.exe")) { py -3.12 -m venv .venv }
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m benchmarks.stage13_quality_benchmark --output ".\local_stage13_query_dev_metrics_v1.json"
+.\.venv\Scripts\python.exe -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001
+```
+
+In a **second** PowerShell terminal while the server remains running:
+
+```powershell
+.\.venv\Scripts\python.exe tests/e2e_document_query_smoke.py --base-url http://127.0.0.1:8001
+Set-Content -LiteralPath ".\local_stage13_example.txt" -Encoding utf8 -Value "جلسه بعدی در تاریخ ۱۴ آبان ۱۴۰۵ برگزار می‌شود."
+curl.exe -sS -X POST "http://127.0.0.1:8001/api/v1/document_query/file" -F "file=@local_stage13_example.txt;type=text/plain" -F "query=تاریخ جلسه بعدی"
+curl.exe -sS -X POST "http://127.0.0.1:8001/api/v1/document_query/file" -F "file=@local_stage13_example.txt;type=text/plain" -F "query=تاریخ جلسه بعدی" -F "mode=focused_summary" -F "summary_length=medium"
+```
+
+The Stage 13 report compares **Development-only synthetic** retrieval `Recall@1/3`, exact source-quote answers, evidence support, no-answer accuracy, ambiguity and topic coverage. It includes SHA-256 provenance, per-case outcomes and local Python-tracked memory/latency; it **does not** measure operating-system RSS or human-semantic fidelity. Output is a new file, never overwritten; choose a different output filename on each run. Do not commit confidential source or local benchmark outputs.
+
+The original Stage 9 dataset, held-out facts and Stage 10 acceptance criteria are **frozen**. Optionally rerun the existing source-model benchmark on Development only and compare existing, matching raw runs:
+
+```powershell
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark validate
+# Optional model inference (Development only; downloads model weights if missing):
+.\.venv\Scripts\python.exe -m benchmarks.quality_benchmark run --split dev --output ".\local_quality_stage13_default_dev.json"
+# Compare two existing compatible Development outputs, with paths replaced by actual run files:
+# .\.venv\Scripts\python.exe -m benchmarks.stage10_compare --dataset benchmarks/fixtures/quality_v1.json --baseline PATH_TO_BASELINE.json --candidate PATH_TO_STAGE10_RUN.json --output ".\local_stage13_stage10_comparison.json"
+```
+
+These raw summaries need an independent human factual review before any general-summarization quality decision. The previously unmet Stage 10 Production gate remains **NO-GO**, even though the user approved development progression.
+
+### Docker preview from the current checkout (not GHCR stage8)
+
+```powershell
+docker build -t mt5-persian-summary:stage13-dev .
+docker volume create mt5_hf_cache
+docker run -d --name mt5-stage13-preview --init --memory 8g --cpus 2 --pids-limit 256 --security-opt no-new-privileges -p 127.0.0.1:8003:8000 -v mt5_hf_cache:/home/app/.cache/huggingface -e env_type=production mt5-persian-summary:stage13-dev
+curl.exe -sS http://127.0.0.1:8003/api/v1/health
+.\.venv\Scripts\python.exe tests/e2e_document_query_smoke.py --base-url http://127.0.0.1:8003
+```
+
+The Dockerfile bundles source/dependencies, **not** mT5 weights. Live Docker, memory/RSS and real Persian document stress tests must be run on the intended machine before any release signoff. Document Query works without a model download; regular summarization still uses the lazy mT5 provider.

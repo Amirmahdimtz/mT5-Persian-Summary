@@ -254,3 +254,58 @@ def test_v5_numbered_markdown_items_do_not_emit_orphan_list_markers():
     assert "**کارها:** 1." not in result
     assert provider.calls == []
 
+
+def test_v6_semicolon_qualifier_is_kept_with_source_statement():
+    svc, provider = service()
+    source = (
+        "برای نمونه، افزایش مصرف الزاماً به معنای خرابی شبکه نیست؛ "
+        "زیرا احتمال دارد تغییر فصل باعث افزایش مصرف شده باشد. "
+        "برای بررسی بیشتر، نتایج باید با گزارش‌های رسمی مقایسه شوند."
+    )
+    sentences = [value for _, value in svc._source_sentence_candidates(source)]
+    assert sentences == [
+        "برای نمونه، افزایش مصرف الزاماً به معنای خرابی شبکه نیست؛ "
+        "زیرا احتمال دارد تغییر فصل باعث افزایش مصرف شده باشد.",
+        "برای بررسی بیشتر، نتایج باید با گزارش‌های رسمی مقایسه شوند.",
+    ]
+    result = run(svc.summarize_async(source, "long", **FLAGS))
+    assert "نیست؛ زیرا" in result
+    assert all(line in source for line in result.splitlines())
+    assert provider.calls == []
+
+
+def test_v6_does_not_extract_incomplete_semicolon_clause():
+    svc, provider = service()
+    source = (
+        "کد هر مرحله کامل باشد؛ placeholderهایی مانند TODO و pseudo-code "
+        "بدون درخواست صریح کاربر نباید تحویل داده شوند."
+    )
+    sentences = [value for _, value in svc._source_sentence_candidates(source)]
+    assert sentences == [source]
+    result = run(svc.summarize_async(source, "long", **FLAGS))
+    assert result == source
+    assert provider.calls == []
+
+
+def test_v6_prefers_actionable_source_information_over_generic_intro():
+    svc, provider = service()
+    source = (
+        "هدف: این فایل برای انتقال شرح عمومی پروژه به اعضای گروه تهیه شده است.\n\n"
+        "برای هر سرویس ساده Interface نساز.\n\n"
+        "این برنامه از دریافت چند سند فارسی پشتیبانی می‌کند."
+    )
+    short = run(svc.summarize_async(source, "short", **FLAGS))
+    assert short != "هدف: این فایل برای انتقال شرح عمومی پروژه به اعضای گروه تهیه شده است."
+    assert short in {
+        "برای هر سرویس ساده Interface نساز.",
+        "این برنامه از دریافت چند سند فارسی پشتیبانی می‌کند.",
+    }
+    assert provider.count_input_tokens(short) <= svc.output_token_budget("short")
+    assert provider.calls == []
+
+
+def test_v6_capability_signal_does_not_match_negated_cannot():
+    svc, _ = service()
+    assert svc._SOURCE_CAPABILITY.search("سرویس می‌تواند فایل را دریافت کند.")
+    assert svc._SOURCE_CAPABILITY.search("سرویس نمی‌تواند فایل را دریافت کند.") is None
+

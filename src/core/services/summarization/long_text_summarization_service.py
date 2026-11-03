@@ -66,6 +66,15 @@ class LongTextSummarizationService:
         r"اولویت|برنامه|امضا|توسعه|افتتاح|بازنگری|مرحله|"
         r"اجرا|پشتیبانی|آموزش|آغاز|پایان"
     )
+    # v6 Development-only source selector: favor substantive claims over
+    # generic "program/execution" signals, without benchmark-specific keys.
+    _SOURCE_SENTENCE_SPLIT = re.compile(r"(?<=[.!?؟])[ \t]+")
+    _SOURCE_DIRECTIVE = re.compile(r"نساز|نکن")
+    _SOURCE_CAPABILITY = re.compile(r"پشتیبانی|(?<!ن)می‌توان|بتواند|توانایی")
+    # "نه" is ambiguous in Persian (negation versus nine); do not reward it.
+    _SOURCE_QUANTITY = re.compile(
+        r"\b(?:یک|دو|سه|چهار|پنج|شش|هفت|هشت|ده|[0-9۰-۹]+)\b"
+    )
     _HEADING = re.compile(r"^(#{1,6})[ \t]+(.+)$")
     # pypdf layout mode may retain visual numbered headings as ordinary lines.
     _NUMBERED_HEADING = re.compile(r"^[0-9۰-۹]{1,2}\s*[.)．]\s+\S.{0,70}$")
@@ -283,9 +292,9 @@ class LongTextSummarizationService:
                 return False
             joined = " ".join(lines)
             lines.clear()
-            for sentence in cls._FIRST_SENTENCE.split(joined):
+            for sentence in cls._SOURCE_SENTENCE_SPLIT.split(joined):
                 value = sentence.strip()
-                if (not value or value[-1] not in ".!?؟؛" or
+                if (not value or value[-1] not in ".!?؟" or
                         not 12 <= len(value) <= 350 or
                         not re.search(r"[\u0600-\u06ff]", value) or
                         value in seen):
@@ -304,7 +313,7 @@ class LongTextSummarizationService:
                 # two display-wrapped halves of the same logical sentence.
                 # Two blank lines, or a completed sentence, mark a boundary.
                 if (blank_run >= 2 or
-                        (lines and lines[-1].endswith((".", "!", "?", "؟", "؛")))):
+                        (lines and lines[-1].endswith((".", "!", "?", "؟")))):
                     if flush_paragraph():
                         return results
                     paragraph += 1
@@ -373,7 +382,7 @@ class LongTextSummarizationService:
         Exact source sentences are emitted unchanged and in source order.
         """
         candidates = self._source_sentence_candidates(original_source)
-        ranked: list[tuple[int, int, int, str]] = []
+        ranked: list[tuple[int, int, int, int, str]] = []
         for position, (paragraph, sentence) in enumerate(candidates):
             if len(sentence) > self._provider.max_input_characters:
                 continue
@@ -382,13 +391,18 @@ class LongTextSummarizationService:
             )
             if token_count < 1 or token_count > final_budget:
                 continue
+            # Substantive directives, available capabilities and quantities
+            # take priority over broad lexical triggers like "program".
             score = (
-                3 * bool(self._SOURCE_SIGNAL.search(sentence))
-                + 2 * bool(self._LEAD_QUANTITY.search(sentence))
+                bool(self._SOURCE_SIGNAL.search(sentence))
+                + 3 * bool(self._OBLIGATION.search(sentence))
+                + 4 * bool(self._SOURCE_DIRECTIVE.search(sentence))
+                + 4 * bool(self._SOURCE_CAPABILITY.search(sentence))
+                + 3 * bool(self._SOURCE_QUANTITY.search(sentence))
                 + bool(self._LEAD_TECH.search(sentence))
-                + bool(self._OBLIGATION.search(sentence))
+                + bool(self._CODE.search(sentence))
             )
-            ranked.append((score, position, paragraph, sentence))
+            ranked.append((score, position, paragraph, token_count, sentence))
 
         chosen: list[tuple[int, int, str]] = []
         count_limit = self._SOURCE_SENTENCE_LIMITS[summary_length]
@@ -397,12 +411,15 @@ class LongTextSummarizationService:
             eligible = sorted(
                 (entry for entry in ranked if entry[1] not in {x[0] for x in chosen}),
                 key=lambda item: (
-                    -(item[0] + (3 if item[2] not in used_paragraphs else 0)),
+                    # Modest paragraph diversity and limited lead preference.
+                    -(item[0] + (1 if item[2] not in used_paragraphs else 0)
+                      + max(0, 3 - item[1] // 8)),
+                    item[3],  # Prefer concise evidence for equal salience.
                     item[1],
                 ),
             )
             accepted = None
-            for _score, position, paragraph, sentence in eligible:
+            for _score, position, paragraph, _tokens, sentence in eligible:
                 tentative = sorted((*chosen, (position, paragraph, sentence)))
                 candidate = "\n".join(part for _, _, part in tentative)
                 if (len(candidate) <= self._provider.max_input_characters and

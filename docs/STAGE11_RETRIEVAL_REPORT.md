@@ -1,7 +1,7 @@
 # Stage 11 — Source-anchored Extraction & Retrieval
 
 **Stage:** 11 of Post-MVP Development Plan (Evidence-aware Extraction & Retrieval)  
-**Status:** Implementation committed for verification; Windows integration/acceptance pending  
+**Status:** Completed (Development engineering acceptance; Production/real-field semantic QA remains separate)  
 **Scope:** Structured retrieval from one in-memory TXT, text-based PDF or DOCX; **not** a new HTTP/QA endpoint. Stage 12 owns API/answer generation.
 
 ## Core implementation and invariants
@@ -47,4 +47,15 @@ Get-Content -LiteralPath ".\local_stage11_retrieval_dev_v1.json" -Raw
 - A measurable Stage 9 Development `Recall@K` report is available once run on the actual Windows environment.
 - Limitations: lexical coverage may miss paraphrases/morphology, sentence splitting can lose qualifiers across boundaries, token-bounded admission and page-by-page source extraction should be stress tested on varied real Persian PDFs/DOCX, evidence can be ambiguous without literal contradiction, long-document indexing may be resource intensive. No answer quality or Stage 10 semantic-quality production approval is implied.
 
-**Decision:** Stage 11 is **In Progress / pending actual Repository Windows regression and labeled Recall@K verification**. Upon a green full suite and successful Development report, it can be marked completed; Stage 12 may then implement the separate Document Query API. User-accepted Stage 10 quality limitations remain documented and are deferred, not falsely marked as passing the former Production GO quality gate.
+**Decision (2026-11-03):** Stage 11 is **Completed for Development engineering acceptance** after the user's verified Windows full-suite tests and 15-question labeled Development retrieval benchmark. Stage 12 may now implement the separate Document Query API. User-accepted Stage 10 quality limitations remain documented and are deferred, not falsely marked as passing the former Production GO quality gate.
+
+## Stage 11 Windows integration verification and completion (2026-11-03)
+
+The user provided the full Windows PowerShell terminal record of pulling GitHub `main` through `f103d19a92e89a07f84875b41148fa5bffe394e9`, installing the real requirements, and running the actual checked-out project tests plus the Stage 11 labeled Development benchmark.
+
+- **Dependency and syntax validation:** `pip install -r requirements.txt` reported requirements satisfied, including `pypdf==6.21.2`, `python-docx==1.2.0`, `transformers==4.57.6`; `pip check` returned "No broken requirements found"; `compileall -q src benchmarks tests` completed without error.
+- **Focused integration tests:** `pytest -q tests/test_stage11_retrieval.py tests/test_document_extraction_service.py tests/test_di.py` **85 passed, 0 failed in 8.27s**. This includes TXT/PDF/DOCX source-location regression cases, real DI discovery, existing extraction compatibility, invalid input, lexical normalization, `not_found`, and numeric/person `ambiguous` cases.
+- **Full regression suite:** `pytest -q` **429 passed, 0 failed, 2 warnings in 31.44s**. The warnings were the already known Starlette TestClient/httpx deprecation and an httpx raw-content-upload deprecation. No failure or dependency mismatch was reported.
+- **Actual Development benchmark:** `python -m benchmarks.stage11_retrieval_benchmark --output .\\local_stage11_retrieval_dev_v1.json` successfully wrote a **new local, untracked** report. The complete terminal-rendered JSON was independently parsed and checked for 15 distinct IDs, 15/15 `recall_at_1=true`, 15/15 `recall_at_3=true`, and 15 `status=found` records. The report includes source paragraph and document-order locations. **Recall@1=1.000 and Recall@3=1.000 on the fifteen existing, labeled Stage 9 synthetic Development queries only.** Source dataset SHA-256 recorded: `cc907d6b16a4b68685b280002bb0a0f550ce6ce3966941c8732702c016f8a9a9`. Labels SHA-256 recorded: `7fa910edc47c98f712d0f9f83eb646998f7eb859c4a4d2e42153ad524c6e770e`.
+- **Scope of evidence:** The results confirm exact quote-level source retrieval and source-location plumbing, not answering quality, entailment, deep semantic retrieval, PDF scan/OCR, statistically valid production recall, or independent human validation on diverse real Persian documents. The 15-query metric does not exercise `not_found` or `ambiguous` cases; those statuses are covered by unit tests. This stage did not introduce a Document Query HTTP endpoint or load the mT5 model during retrieval.
+- **Stage decision:** **Completed (Development engineering scope)**. No application code, model/config defaults, APIs, test gates or holdout datasets are changed by this signoff. The user-accepted Stage 10 quality shortfall is still explicitly deferred (not a Production GO). **Stage 12 is ready** to implement a separate optional Document Query API with grounded answer/focused-summary behavior, subject to its own tests and quality gates.

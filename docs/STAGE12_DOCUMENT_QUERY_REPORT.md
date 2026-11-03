@@ -116,3 +116,39 @@ curl.exe -sS -X POST "http://127.0.0.1:8001/api/v1/document_query/file" -F "file
 ```
 
 Expected when the listener is available: HTTP 200 `found`, the original Persian date quote and a source location with `document_type="txt"`, `paragraph=1` and `page=null`. If the TCP probe is false, inspect whether Uvicorn remains running or choose a free alternate port. Do not stop an unknown process merely to free a port. Until the successful live response is supplied, **Stage 12 remains In Progress, despite its green test suite**. No runtime code or model changes in this documentation note.
+
+## Stage 12 Development signoff — Windows tests and live HTTP source evidence (2026-11-03)
+
+**Decision: Completed (Development engineering acceptance)**, after actual full-suite regression and a successful live-source smoke response. This supersedes older In Progress entries above; those remain as chronological engineering history.
+
+**User-run Windows verification at feature commit `5ca2d840f96637c547509b600e63f3104128842b`:** `pytest -q tests/test_stage12_document_query.py` yielded **31 passed, 1 warning in 6.21s**. `pytest -q` yielded **460 passed, 2 warnings in 18.31s**, with **zero failures and zero errors**. The two warnings are third-party Starlette TestClient/httpx and httpx raw-body deprecations, not new functional failures. The Python source compilation completed without errors on the same checkout.
+
+**Live HTTP validation:** After a background Uvicorn process was kept running on `127.0.0.1:8001`, the user verified `Test-NetConnection` with `TcpTestSucceeded=True`. Their real `curl.exe` multipart request to `/api/v1/document_query/file` with an uploaded TXT file and `query=تاریخ جلسه بعدی` returned:
+```json
+{
+  "status": "found",
+  "mode": "answer",
+  "query": "تاریخ جلسه بعدی",
+  "answer": "جلسه بعدی در تاریخ ۱۴ آبان ۱۴۰۵ برگزار می‌شود.",
+  "evidence": [
+    {
+      "location_type": "paragraph",
+      "document_type": "txt",
+      "page": null,
+      "paragraph": 1,
+      "section": null,
+      "table": null,
+      "row": null,
+      "document_order": 0,
+      "text": "جلسه بعدی در تاریخ ۱۴ آبان ۱۴۰۵ برگزار می‌شود."
+    }
+  ]
+}
+```
+The returned answer and citation are verbatim and source-located, with no fabricated page index. The `curl` command did not separately print the numeric HTTP status code, but the valid application response demonstrates that the previously missing listener was available and the route processed the request successfully.
+
+**Acceptance mapping:** The Swagger route, multipart DTO/validation, found/not_found/ambiguous cases, input limits, redacted errors, and compatibility with existing Summarization routes are exercised by the new API and full integration suite. The live query independently confirms a real TXT upload, date retrieval, exact-citation response, and source paragraph location. The new route is extractive-only, does not load mT5, and therefore has no model-unavailability path. Model-generated answers, real-document semantic evaluation, OCR, and security/load stress beyond existing tests are not claimed.
+
+**Scope/known issues:** Completed here means the agreed Stage 12 Development functionality and engineering tests, **not** Production GO. Lexical matching can miss paraphrases and mishandle implicit/conditional meaning; a single TXT live smoke does not validate all PDF/DOCX documents. These limitations must be treated during Stage 13 evaluation and hardening. Stage 10's frozen semantic-quality Production gate remains deferred and unpassed. Stage 13 has not started.
+
+**Signoff change:** Documentation-only (this report, `docs/POST_MVP_DEVELOPMENT_PLAN.md`, `docs/IMPLEMENTATION_PROGRESS.md`); implementation, tests, fixed benchmarks, dependencies and application behavior unchanged. Final signoff commit SHA is the verified GitHub main commit containing this update.

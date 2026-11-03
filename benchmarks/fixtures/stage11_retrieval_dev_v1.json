@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "source_dataset": "benchmarks/fixtures/quality_v1.json",
+  "split": "dev",
+  "purpose": "Labeled lexical retrieval from pre-existing Stage 9 Development source texts; not an answer-generation accuracy benchmark.",
+  "queries": [
+    {"id": "rain_region", "case_id": "weather_short", "query": "بارش باران استان‌های شمالی افزایش", "expected_quote": "بارش باران در استان‌های شمالی افزایش می‌یابد"},
+    {"id": "driver_advice", "case_id": "weather_short", "query": "رانندگان شرایط جاده‌ها", "expected_quote": "رانندگان توصیه کردند شرایط جاده‌ها را بررسی کنند"},
+    {"id": "electric_buses", "case_id": "multitopic_pollution", "query": "اتوبوس‌های برقی افزایش", "expected_quote": "تعداد اتوبوس‌های برقی در مسیرهای پرتردد افزایش پیدا می‌کند"},
+    {"id": "new_clinics", "case_id": "multitopic_pollution", "query": "افتتاح دو درمانگاه جدید", "expected_quote": "افتتاح دو درمانگاه جدید"},
+    {"id": "ai_labs", "case_id": "multitopic_pollution", "query": "آزمایشگاه‌های هوش مصنوعی", "expected_quote": "توسعه آزمایشگاه‌های هوش مصنوعی تفاهم‌نامه همکاری امضا کردند"},
+    {"id": "teacher_training", "case_id": "long_repetitive_education", "query": "آموزش معلمان زیرساخت مدارس", "expected_quote": "آموزش معلمان، ارتقای زیرساخت مدارس"},
+    {"id": "priority_schools", "case_id": "long_repetitive_education", "query": "مدارس مناطق کم‌برخوردار اولویت", "expected_quote": "مدارس مناطق کم‌برخوردار اولویت دارند"},
+    {"id": "meeting_date", "case_id": "meeting_decisions", "query": "صورت‌جلسه کمیته فناوری", "expected_quote": "۱۴ آبان ۱۴۰۵"},
+    {"id": "security_owner", "case_id": "meeting_decisions", "query": "مسئول بررسی امنیت سامانه", "expected_quote": "آقای رضایی مسئول بررسی امنیت سامانه"},
+    {"id": "cost_owner", "case_id": "meeting_decisions", "query": "خانم احمدی گزارش هزینه‌ها", "expected_quote": "خانم احمدی موظف شد گزارش هزینه‌ها"},
+    {"id": "next_meeting", "case_id": "meeting_decisions", "query": "جلسه بعدی ۳۰ آبان", "expected_quote": "جلسه بعدی برای ۳۰ آبان ۱۴۰۵"},
+    {"id": "budget", "case_id": "meeting_decisions", "query": "بودجه اولیه پروژه", "expected_quote": "۳۵۰ میلیون تومان"},
+    {"id": "network_down", "case_id": "budget_report", "query": "هزینه نگهداری شبکه کاهش", "expected_quote": "از ۸۰ میلیون تومان به ۶۵ میلیون تومان کاهش یافته است"},
+    {"id": "support_up", "case_id": "budget_report", "query": "هزینه پشتیبانی نرم‌افزار افزایش", "expected_quote": "از ۳۰ میلیون به ۳۶ میلیون تومان افزایش پیدا کرده است"},
+    {"id": "contract_review", "case_id": "budget_report", "query": "قرارداد سرویس پشتیبانی آذر", "expected_quote": "در پایان آذر بازنگری می‌شود"}
+  ]
+}

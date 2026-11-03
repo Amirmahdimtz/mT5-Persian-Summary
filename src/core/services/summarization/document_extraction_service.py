@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from dataclasses import dataclass
+from typing import Literal
 from io import BytesIO
 from pathlib import Path
 from zipfile import BadZipFile, LargeZipFile, ZipFile
@@ -60,6 +62,26 @@ class DocumentParsingError(RuntimeError):
     """The document parser failed for a reason other than known invalid input."""
 
 
+
+@dataclass(frozen=True, slots=True)
+class SourceLocation:
+    """Parser-established location, never an inferred page/paragraph number."""
+
+    document_type: Literal["txt", "pdf", "docx"]
+    page: int | None = None
+    paragraph: int | None = None
+    section: str | None = None
+    table: int | None = None
+    row: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentSegment:
+    text: str
+    source_location: SourceLocation
+    document_order: int  # Zero-based across nonempty evidence windows.
+
+
 @inject
 class DocumentExtractionService:
     """Extract Unicode text without filesystem writes, model calls or HTTP types.
@@ -88,6 +110,130 @@ class DocumentExtractionService:
             return self.extract_docx(content)
         raise UnsupportedDocumentTypeError("supported extensions are .txt, .pdf and .docx")
 
+    MAX_SEGMENT_CHARACTERS = 1200
+    SEGMENT_OVERLAP_CHARACTERS = 120
+    MAX_SEGMENTS = 8192
+
+    @classmethod
+    def _append_segment_windows(
+        cls, segments: list[DocumentSegment], value: str, location: SourceLocation
+    ) -> None:
+        """Create source-exact sentence excerpts, overlapping only long spans."""
+        for sentence in re.split(r"(?<=[.!?؟])[ \t\n]+", value.strip()):
+            source = sentence.strip()
+            start = 0
+            while start < len(source):
+                end = min(start + cls.MAX_SEGMENT_CHARACTERS, len(source))
+                if end < len(source):
+                    # Prefer a whitespace boundary in the final half of a window.
+                    boundary = max(
+                        source.rfind(" ", start + cls.MAX_SEGMENT_CHARACTERS // 2, end),
+                        source.rfind("\n", start + cls.MAX_SEGMENT_CHARACTERS // 2, end),
+                    )
+                    if boundary > start:
+                        end = boundary + 1
+                excerpt = source[start:end].strip()
+                if excerpt:
+                    if len(segments) >= cls.MAX_SEGMENTS:
+                        raise DocumentLimitError("document exceeds the segment count limit")
+                    segments.append(DocumentSegment(excerpt, location, len(segments)))
+                if end == len(source):
+                    break
+                next_start = max(start + 1, end - cls.SEGMENT_OVERLAP_CHARACTERS)
+                # The preceding window already contains this partial word.
+                while next_start < end and not source[next_start - 1].isspace():
+                    next_start += 1
+                start = next_start
+
+    def extract_segments(self, content: bytes, filename: str) -> tuple[DocumentSegment, ...]:
+        """Extract bounded source evidence with truthful page/paragraph locations.
+
+        Does not change extract(content, filename) -> str. PDF page numbers are
+        one-based including blank pages; DOCX has no synthesized page numbers.
+        """
+        if not isinstance(filename, str) or not filename.strip():
+            raise UnsupportedDocumentTypeError("filename must have a supported extension")
+        suffix = Path(filename).suffix.lower()
+        segments: list[DocumentSegment] = []
+        if suffix == ".txt":
+            text = self.extract_txt(content)
+            if len(text) > self.MAX_TEXT_CHARACTERS:
+                raise DocumentLimitError("extracted text exceeds the character limit")
+            for index, paragraph in enumerate(re.split(r"\n[ \t]*\n+", text), start=1):
+                if paragraph.strip():
+                    self._append_segment_windows(
+                        segments, paragraph, SourceLocation("txt", paragraph=index)
+                    )
+        elif suffix == ".pdf":
+            for number, page_text in self._pdf_pages(content):
+                self._append_segment_windows(
+                    segments, page_text, SourceLocation("pdf", page=number)
+                )
+        elif suffix == ".docx":
+            segments = self._docx_segments(content)
+        else:
+            raise UnsupportedDocumentTypeError("supported extensions are .txt, .pdf and .docx")
+        if not segments:
+            raise NoExtractableTextError("document contains no extractable text")
+        return tuple(segments)
+
+    def _docx_segments(self, content: bytes) -> list[DocumentSegment]:
+        self._validate_bytes(content)
+        try:
+            self._check_docx_container(content)
+            document = Document(BytesIO(content))
+            segments: list[DocumentSegment] = []
+            total_characters = 0
+            paragraph_number = 0
+            table_number = 0
+            section: str | None = None
+            for item in document.iter_inner_content():
+                if isinstance(item, Paragraph):
+                    paragraph_number += 1
+                    text = item.text
+                    total_characters += len(text)
+                    if total_characters > self.MAX_TEXT_CHARACTERS:
+                        raise DocumentLimitError("extracted text exceeds the character limit")
+                    if item.style and item.style.name.startswith("Heading") and text.strip():
+                        section = text.strip()[:160]
+                    self._append_segment_windows(
+                        segments, text, SourceLocation(
+                            "docx", paragraph=paragraph_number, section=section
+                        )
+                    )
+                else:
+                    table_number += 1
+                    seen_cells: set[object] = set()
+                    for row_number, row in enumerate(item.rows, start=1):
+                        cells: list[str] = []
+                        for cell in row.cells:
+                            if cell._tc in seen_cells:
+                                continue
+                            seen_cells.add(cell._tc)
+                            cell_text = "\n".join(
+                                text for part in cell.iter_inner_content()
+                                if (text := self._content_text(part)).strip()
+                            )
+                            if cell_text.strip():
+                                cells.append(cell_text)
+                        text = "\t".join(cells)
+                        total_characters += len(text)
+                        if total_characters > self.MAX_TEXT_CHARACTERS:
+                            raise DocumentLimitError("extracted text exceeds the character limit")
+                        self._append_segment_windows(
+                            segments, text, SourceLocation(
+                                "docx", section=section, table=table_number, row=row_number
+                            )
+                        )
+            return segments
+        except DocumentExtractionError:
+            raise
+        except (BadZipFile, LargeZipFile, PackageNotFoundError, InvalidXmlError,
+                XMLSyntaxError, KeyError, ValueError) as error:
+            raise CorruptedDocumentError("DOCX is malformed or unreadable") from error
+        except Exception as error:
+            raise DocumentParsingError("DOCX text extraction failed") from error
+
     def extract_txt(self, content: bytes) -> str:
         self._validate_bytes(content)
         try:
@@ -99,6 +245,12 @@ class DocumentExtractionService:
         return self._normalize(text)
 
     def extract_pdf(self, content: bytes) -> str:
+        return self._normalize(
+            "\n\n".join(text for _, text in self._pdf_pages(content))
+        )
+
+    def _pdf_pages(self, content: bytes) -> list[tuple[int, str]]:
+        """One-based actual page indexes; skip blank pages without renumbering."""
         self._validate_bytes(content)
         if b"%PDF-" not in content[:1024]:
             raise InvalidDocumentError("PDF signature is missing")
@@ -109,13 +261,12 @@ class DocumentExtractionService:
             count = len(reader.pages)
             if count > self.MAX_PDF_PAGES:
                 raise DocumentLimitError("PDF page count exceeds the extraction limit")
-            pages: list[str] = []
+            pages: list[tuple[int, str]] = []
             total_characters = 0
-            for page in reader.pages:
+            for number, page in enumerate(reader.pages, start=1):
                 if "/Contents" not in page:
                     continue  # Valid blank pages need not have a content stream.
-                # PDF generators differ between logical and visual RTL order.
-                # Keep rotated content and correct only strong RTL evidence.
+                # The existing conservative RTL restoration stays identical.
                 text = page.extract_text(
                     extraction_mode="layout", layout_mode_strip_rotated=False
                 ) or ""
@@ -124,8 +275,8 @@ class DocumentExtractionService:
                 if total_characters > self.MAX_TEXT_CHARACTERS:
                     raise DocumentLimitError("extracted text exceeds the character limit")
                 if text.strip():
-                    pages.append(text)
-            return self._normalize("\n\n".join(pages))
+                    pages.append((number, text))
+            return pages
         except (PasswordProtectedPdfError, DocumentLimitError, NoExtractableTextError):
             raise
         except PdfReadError as error:

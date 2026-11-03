@@ -71,7 +71,7 @@ class LongTextSummarizationService:
     _SOURCE_SENTENCE_SPLIT = re.compile(r"(?<=[.!?؟])[ \t]+")
     _SOURCE_DIRECTIVE = re.compile(r"نساز|نکن")
     _SOURCE_CAPABILITY = re.compile(
-        r"پشتیبانی\\s+می‌?(?:کند|کنند|شود|شوند)|(?<!ن)می‌توان|بتواند|توانایی"
+        r"پشتیبانی\s+می‌?(?:کند|کنند|شود|شوند)|(?<!ن)می‌توان|بتواند|توانایی"
     )
     # "نه" is ambiguous in Persian (negation versus nine); do not reward it.
     _SOURCE_QUANTITY = re.compile(

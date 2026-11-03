@@ -70,7 +70,9 @@ class LongTextSummarizationService:
     # generic "program/execution" signals, without benchmark-specific keys.
     _SOURCE_SENTENCE_SPLIT = re.compile(r"(?<=[.!?؟])[ \t]+")
     _SOURCE_DIRECTIVE = re.compile(r"نساز|نکن")
-    _SOURCE_CAPABILITY = re.compile(r"پشتیبانی|(?<!ن)می‌توان|بتواند|توانایی")
+    _SOURCE_CAPABILITY = re.compile(
+        r"پشتیبانی\\s+می‌?(?:کند|کنند|شود|شوند)|(?<!ن)می‌توان|بتواند|توانایی"
+    )
     # "نه" is ambiguous in Persian (negation versus nine); do not reward it.
     _SOURCE_QUANTITY = re.compile(
         r"\b(?:یک|دو|سه|چهار|پنج|شش|هفت|هشت|ده|[0-9۰-۹]+)\b"

@@ -309,3 +309,18 @@ def test_v6_capability_signal_does_not_match_negated_cannot():
     assert svc._SOURCE_CAPABILITY.search("سرویس می‌تواند فایل را دریافت کند.")
     assert svc._SOURCE_CAPABILITY.search("سرویس نمی‌تواند فایل را دریافت کند.") is None
 
+def test_v6_nominal_support_cost_does_not_count_as_service_capability():
+    svc, _ = service()
+    assert svc._SOURCE_CAPABILITY.search(
+        "در مقابل هزینه پشتیبانی نرم‌افزار از ۳۰ به ۳۶ میلیون تومان افزایش یافته است."
+    ) is None
+    assert svc._SOURCE_CAPABILITY.search(
+        "قرارداد پشتیبانی در پایان آذر بازنگری می‌شود."
+    ) is None
+    assert svc._SOURCE_CAPABILITY.search(
+        "این سرویس از دریافت چند فایل فارسی پشتیبانی می‌کند."
+    )
+    assert svc._SOURCE_CAPABILITY.search(
+        "این قابلیت برای کاربران پشتیبانی می‌شود."
+    )
+

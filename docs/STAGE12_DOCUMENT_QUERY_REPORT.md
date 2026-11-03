@@ -59,3 +59,26 @@ In a separate PowerShell terminal, with the application running:
 Check http://127.0.0.1:8000/docs for the new operation and unchanged Summarization routes. Both smoke responses should cite the original phrase and report true TXT paragraph=1. Do not commit local output files containing private documents.
 
 Stage 13 should harden real Persian PDF/DOCX coverage, adversarial queries, semantic consistency, operational resource limits and independent human review. Stage 10's Production-quality NO-GO remains a separate, deferred constraint.
+
+## Windows integration failure and focused fixture correction (2026-11-03)
+
+A real Windows run after GitHub Stage 12 commit `7a7647ac870de7b5e94f81d55e416df749c3cc3a` reported **96 passed / 16 setup errors / 2 warnings** for the focused set and **444 passed / 16 setup errors / 2 warnings** for the full test suite. No assertion failures were recorded. All 16 setup errors were one duplicated problem: the HTTP test fixture handed `DocumentQueryController` an empty `TestConfig` that does not implement `ConfigReader.get("api.upload.max_total_bytes")`. The error occurs during constructor configuration, before request handling; it does **not** establish a production controller or retrieval failure.
+
+**Fix:** In `tests/test_stage12_document_query.py`, replace the handwritten test-only controller mount/fake config with `TestClient(app)` using `src.host.app.app`, including real configuration, constructor DI, controller auto discovery and pre-multipart ASGI upload middleware. The OpenAPI test also asserts that the existing Summarization API remains registered. No production file, request budget, status mapping, source retrieval, or model behavior is changed. A green Windows rerun is still required.
+
+The service was also started via `python -m src.host.app` and reported application startup complete but could not bind to **127.0.0.1:8000 (WinError 10048)**. Another program holds that port; do **not** kill an unidentified process. Instead, select an alternate port and use it consistently:
+
+```powershell
+# Inspect which process is listening on 8000 without modifying it:
+Get-NetTCPConnection -State Listen -LocalPort 8000 -ErrorAction SilentlyContinue |
+    Select-Object LocalAddress, LocalPort, OwningProcess
+
+# Launch on a free port in a dedicated terminal:
+$env:env_type = "development"
+.\.venv\Scripts\python.exe -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001
+
+# In another terminal, use port 8001 for the same smoke request:
+curl.exe -sS -X POST "http://127.0.0.1:8001/api/v1/document_query/file" -F "file=@local_stage12_demo.txt;type=text/plain" -F "query=تاریخ جلسه بعدی"
+```
+
+The earlier isolated 31-test preflight did **not** cover the real config/middleware integration and should not be misrepresented as passing the actual HTTP test setup. **Stage 12 remains In Progress; Production GO has not been granted.** Execute focused/full Windows pytest and the new-port smoke test after pulling this fix.

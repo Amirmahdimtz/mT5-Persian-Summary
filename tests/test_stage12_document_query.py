@@ -14,7 +14,6 @@ from src.core.services.document_query.document_query_service import (
 )
 from src.core.services.summarization.document_extraction_service import DocumentExtractionService
 from src.core.services.summarization.document_retrieval_service import DocumentRetrievalService
-from src.application.document_query.document_query_controller import DocumentQueryController
 from src.application.document_query.dtos.document_query_dto import DocumentQueryResponseDto
 
 
@@ -120,13 +119,9 @@ def test_stage12_rejects_invalid_mode_length_before_file_parsing(mode, length):
 
 @pytest.fixture
 def http():
-    from fastapi import FastAPI
-    app = FastAPI()
-    class TestConfig:
-        pass
-    # Bypass irrelevant YAML config in this focused adapter test.
-    controller = DocumentQueryController(_service(), TestConfig())
-    app.include_router(controller.api(), prefix="/api/v1/document_query")
+    # Exercise real controller discovery, ConfigReader and ASGI upload guards.
+    from src.host.app import app
+
     with TestClient(app) as client:
         yield client
 
@@ -142,6 +137,7 @@ def _post(http, data=None, content=None, filename="report.txt", mime="text/plain
 def test_stage12_http_answer_and_swagger(http):
     paths = http.get("/openapi.json").json()["paths"]
     assert "/api/v1/document_query/file" in paths
+    assert "/api/v1/summarization/text" in paths
     response = _post(http)
     assert response.status_code == 200, response.text
     data = DocumentQueryResponseDto.model_validate(response.json())

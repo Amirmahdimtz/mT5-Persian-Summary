@@ -82,3 +82,15 @@ curl.exe -sS -X POST "http://127.0.0.1:8001/api/v1/document_query/file" -F "file
 ```
 
 The earlier isolated 31-test preflight did **not** cover the real config/middleware integration and should not be misrepresented as passing the actual HTTP test setup. **Stage 12 remains In Progress; Production GO has not been granted.** Execute focused/full Windows pytest and the new-port smoke test after pulling this fix.
+
+## Windows post-fixture verification and duplicate multipart correction (2026-11-03)
+
+After the real-App test-fixture patch, the user's Windows run at code SHA `5b28aa30b131b32ae14e34e08d286dc64a91c674` confirmed `compileall` success; **111 passed, 1 failed (3 warnings)** in the focused selection, and **459 passed, 1 failed (3 warnings)** in the complete suite. The prior 16 fixture errors were resolved: 459 of 460 full-suite tests passed. The one remaining test was `tests/test_stage12_document_query.py::test_stage12_http_repeated_query_rejected`, which expected HTTP 422 but received HTTP 415.
+
+**Cause:** The test used the httpx `data=[("query","بودجه"),("query","هزینه")]` payload alongside `files={...}`. In the user's httpx/FastAPI stack, this did not yield a conforming multipart Content-Type; the pre-multipart ASGI middleware correctly rejected the request with 415 before controller-level duplicate validation. The regression test was exercising a **different HTTP request** than intended. The request's production behavior is correct; keep the middleware's Content-Type protection.
+
+**Change (test only):** Encode file and repeated query fields in the `files` sequence using `(None, value)` for non-file entries. This is genuine multipart/form-data, and controller validation must now respond with HTTP 422 plus `InvalidFormFields`. A local minimal FastAPI/TestClient reproduction with httpx 0.28.1 verified the exact form shape and 422/status code but was **not** full Repo pytest. No runtime, interface, dependency or upload-protection change.
+
+**Separate confirmation:** A development Uvicorn server started normally at `http://127.0.0.1:8001`, resolving the earlier port 8000 conflict without disturbing the existing listener. HTTP smoke output itself has not yet been provided. The third deprecation warning in the last Windows run comes from the malformed httpx `data` request and may disappear once the test is corrected; the two pre-existing warnings remain nonblocking.
+
+**Stage remains In Progress** until the Windows full suite is green and an actual multipart HTTP request to the new route returns grounded evidence. Stage 10 Production QA remains a separate deferred NO-GO; Stage 13 hardening is not started.

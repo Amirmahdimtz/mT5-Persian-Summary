@@ -169,12 +169,18 @@ def test_stage12_http_validation_rejects_unsafe_form(http, data):
 
 
 def test_stage12_http_repeated_query_rejected(http):
+    # Encode repeated fields as a genuine multipart body, so ASGI upload
+    # middleware admits the request and the controller rejects duplicates.
     r = http.post(
         "/api/v1/document_query/file",
-        files={"file": ("a.txt", b"report", "text/plain")},
-        data=[("query", "بودجه"), ("query", "هزینه")],
+        files=[
+            ("file", ("a.txt", b"report", "text/plain")),
+            ("query", (None, "بودجه")),
+            ("query", (None, "هزینه")),
+        ],
     )
     assert r.status_code == 422
+    assert r.json()["detail"]["code"] == "InvalidFormFields"
 
 
 @pytest.mark.parametrize("filename,mime,status", [

@@ -154,3 +154,26 @@ An offline preflight using the exact failing Persian fixture and fake-token coun
 ### Immediate regex-escape correction after nominal capability fix
 
 Post-commit review found the first nominal-cost patch accidentally committed an escaped regex sequence `\\\\s+` inside a Python raw regex; this matches a literal backslash and would break the new positive verbal-support test. The follow-up fix uses the correct single-backslash `\\s+` whitespace token. A Python regex sanity check confirms affirmative `پشتیبانی می‌کند` and `پشتیبانی می‌شود` match and nominal `هزینه پشتیبانی` and `قرارداد پشتیبانی` do not. User must run the real focused/full Windows pytest on the **newest** Git SHA. No test success or production readiness is claimed for this code-only adjustment.
+
+## v6 v2 Windows verification and comparator-only evidence (2026-11-03)
+
+The user's Windows clone at code SHA `1132955c7c6789e9e17e916a1ec4e0eccc2ef520` passed the **21 focused v5/v6 tests (1.40s)** and the **complete 408-test regression suite (12.98s)**, with 0 failures and 2 previously observed third-party deprecation warnings. This is the first user-confirmed green regression suite following the v6 nominal-support capability patch; the old cost-decrease preservation assertion was not weakened. These tests were performed on the user's system, not in the assistant environment.
+
+The user verified the unchanged pinned Development dataset hash `fbc292ba36d07581614810efad42f0585ca9a50605e70a966048c33b9ac63e3c` and completed a six-output opt-in v6 v2 run. The **comparison JSON was uploaded and inspected**, but the **actual raw v6 v2 run JSON has not been uploaded**.
+
+### Observations from comparator versus original baseline and historical v5 v3
+
+| Source | Tier | Default mT5 tokens | v5 v3 tokens | v6 v2 tokens | Budget |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `real_architecture_guide` | short | 24 | 33 | **13** | 40 |
+| `real_architecture_guide` | medium | 24 | 74 | **69** | 80 |
+| `real_architecture_guide` | long | 24 | 118 | **114** | 120 |
+| `real_mvp_plan` | short | 39 | 31 | **31** | 40 |
+| `real_mvp_plan` | medium | 44 | 74 | **74** | 80 |
+| `real_mvp_plan` | long | 44 | 113 | **120** | 120 |
+
+All 6 baseline-v6 pairs are reported successful and text-different. All candidate values respect the encoded-token limits. Comparator records `baseline_runs_sha256=e4846212186d4fea7afd21b39ffb851328350dd145688480bb56c7555b597b86`, `candidate_runs_sha256=5a9ed374ca43cabf2119f4b2b45d604953225cc1f275185eccef5cc0a9f1a2bc`, and `semantic_review_status=NOT_REVIEWED`. It also reports zero repeated 4-grams. These metadata are from an actual user-provided JSON artifact; the candidate run file itself is absent, hence its hash and text cannot be independently verified by reading the candidate bytes.
+
+**Interpretation limits:** v6 architecture short fell from 33 to 13 tokens versus v5 v3, and MVP long now uses the full 120-token ceiling. Neither change proves improved fact coverage or polarity/number/date safety. The six-pair comparator compares *default mT5 to v6*, not *v5 v3 to v6*; values at the same token counts do not imply equal strings. v6 remains source-only (`source_sentence_final` flag) and is not a better mT5 generator. Cold-start times, independent human claims, the frozen medium >=3/6 fact gate, and the cross-document semantic gate remain unverified.
+
+**Decision: Stage 10 In Progress / Production NO-GO.** Do not further tune the selector until the raw v6 v2 result is inspected against the original two Development source documents and v5 v3, and independently reviewed. No Production settings or holdouts changed as a consequence of these green engineering tests.

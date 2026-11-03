@@ -94,3 +94,25 @@ After the real-App test-fixture patch, the user's Windows run at code SHA `5b28a
 **Separate confirmation:** A development Uvicorn server started normally at `http://127.0.0.1:8001`, resolving the earlier port 8000 conflict without disturbing the existing listener. HTTP smoke output itself has not yet been provided. The third deprecation warning in the last Windows run comes from the malformed httpx `data` request and may disappear once the test is corrected; the two pre-existing warnings remain nonblocking.
 
 **Stage remains In Progress** until the Windows full suite is green and an actual multipart HTTP request to the new route returns grounded evidence. Stage 10 Production QA remains a separate deferred NO-GO; Stage 13 hardening is not started.
+
+## User Windows tests green; pending live HTTP smoke (2026-11-03)
+
+The user's checkout now contains `5ca2d840f96637c547509b600e63f3104128842b`. The formerly failing real-app multipart duplicate-field test passes. Windows runs confirmed **31 passed, 1 third-party warning** in the Stage 12-specific test suite and **460 passed, 2 third-party warnings** in the full suite (6.21s and 18.31s respectively, zero test failures or errors). The existing warnings are TestClient/Starlette and httpx deprecations.
+
+The user created the smoke input TXT, but `curl.exe` to `127.0.0.1:8001` returned **exit code 7: connection refused/no listener**. This is **not an HTTP 4xx/5xx result** or an indication of incorrect query extraction. The preceding successful Uvicorn 8001 startup was from a prior run; the process must be active when curl executes.
+
+To complete Stage 12 HTTP acceptance, run the server in a terminal that stays open:
+
+```powershell
+$env:env_type = "development"
+.\.venv\Scripts\python.exe -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001
+```
+
+Then, in a **second** PowerShell terminal under the repository directory:
+
+```powershell
+Test-NetConnection 127.0.0.1 -Port 8001
+curl.exe -sS -X POST "http://127.0.0.1:8001/api/v1/document_query/file" -F "file=@local_stage12_demo.txt;type=text/plain" -F "query=تاریخ جلسه بعدی"
+```
+
+Expected when the listener is available: HTTP 200 `found`, the original Persian date quote and a source location with `document_type="txt"`, `paragraph=1` and `page=null`. If the TCP probe is false, inspect whether Uvicorn remains running or choose a free alternate port. Do not stop an unknown process merely to free a port. Until the successful live response is supplied, **Stage 12 remains In Progress, despite its green test suite**. No runtime code or model changes in this documentation note.

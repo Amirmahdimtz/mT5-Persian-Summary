@@ -165,3 +165,20 @@ $report.metrics | Format-List
 ```
 
 Compare against the immutable v2 before claiming improvement. **Production stays NO-GO** pending real-world independently adjudicated Persian documents, original Stage 10 summarization thresholds and security/operational release checks.
+
+
+## Windows post-patch test verification; v3 benchmark execution-order caveat (2026-11-04)
+
+After the user pulled `3068d57..158315e`, the two previously failed regression tests **both passed** and the complete suite reported **575 passed, 0 failed, two deprecation warnings in 30.39 s**. Python import compilation and `pip check` succeeded. This accepts the two focused fixes as Development unit/regression tested; it does not imply independent semantic quality signoff.
+
+A user also supplied `local_answer_quality_eval_v3.json` summary: 34 cases, 18/18 correct found, 0/16 false positives, 16/16 correct abstentions, 21/21 atomic-fact coverage, no invalid responses, statuses 18 found / 12 not_found / four ambiguous. **The displayed v3 benchmark invocation is listed before the pull to `158315e`**. Fresh Uvicorn startup and 34 later HTTP 200 logs are not tied to an additional benchmark result in the supplied transcript. Thus attribute these scores only to a **user-observed v3 synthetic run of uncertain code revision**, not proven new-commit live evidence. The v2 scores on `3068d57` and the clean unit/full-suite tests on `158315e` are confirmed separately.
+
+To remove the ambiguity on Windows PowerShell, in the repository root verify `git rev-parse HEAD`, start a *fresh* Uvicorn process with the latest code on the known port, and run from a second terminal:
+
+```powershell
+.\.venv\Scripts\python.exe -m benchmarks.independent_answer_quality --base-url http://127.0.0.1:8001 --output .\local_answer_quality_eval_v4.json
+$report = Get-Content .\local_answer_quality_eval_v4.json -Raw | ConvertFrom-Json
+$report.metrics | Format-List
+```
+
+Do not overwrite prior reports. This synthetic fixture is already a Development regression dataset, **not a blind/human-reviewed real-Persian holdout**. Production NO-GO remains.

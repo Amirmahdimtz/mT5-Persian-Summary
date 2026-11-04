@@ -33,6 +33,16 @@ class DocumentAnswerValidator:
     _CONDITIONAL_TIME = re.compile(r"چه\s+زمانی.*(?:اجازه|ترخیص|مجاز|امکان)|چه\s+شرطی")
     _CONDITION_FACT = re.compile(r"(?:پس\s+از|در\s+صورت|مشروط\s+به|تنها\s+اگر|فقط\s+پس\s+از)")
     _PERCENT = re.compile(r"([0-9۰-۹٠-٩]+(?:[٫.][0-9۰-۹٠-٩]+)?)\s*(?:درصد|[%٪])")
+    _DATED_CLAIM = re.compile(
+        r"([0-9۰-۹٠-٩]{1,2})\s+"
+        r"(فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)"
+        r"\s+([0-9۰-۹٠-٩]{4})"
+    )
+    _NAMED_PERSON = re.compile(r"(?:آقای|خانم)\s+[\u0600-\u06ff]+(?:\s+[\u0600-\u06ff]+)?")
+    _MONEY_CLAIM = re.compile(
+        r"([0-9۰-۹٠-٩][0-9۰-۹٠-٩٬,]*)\s+(?:میلیون|میلیارد|هزار)\s+(?:تومان|ریال|دلار)"
+    )
+    _CAPACITY_CLAIM = re.compile(r"([0-9۰-۹٠-٩][0-9۰-۹٠-٩٬,]*)\s+نفر")
     _MONTH_YEAR = re.compile(
         r"(فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)"
         r"\s+([0-9۰-۹٠-٩]{4})"
@@ -249,6 +259,29 @@ class DocumentAnswerValidator:
             return False
         if cls._PRICE_QUERY.search(query) and not cls._price_supported(query, text):
             return False
+        if re.search(r"اعتبار\s+مصوب", query):
+            # A meeting date near the project title cannot answer its approved
+            # funding amount. Require the requested metric and an amount
+            # within the same explicit source clause.
+            has_amount = any(
+                re.search(r"اعتبار\s+مصوب", clause)
+                and (
+                    cls._MONEY_CLAIM.search(clause)
+                    or any(
+                        n.isdecimal()
+                        and not (len(n) == 4
+                                 and (1300 <= int(n) <= 1499
+                                      or 1900 <= int(n) <= 2099))
+                        for match in cls._NUMERIC.finditer(clause)
+                        if (n := match.group().translate(
+                            DocumentRetrievalService._CHAR_MAP
+                        ).replace("٬", "").replace(",", "")).isdecimal()
+                    )
+                )
+                for clause in re.split(r"[؛\n]|(?<=[.!؟])\s+", text)
+            )
+            if not has_amount:
+                return False
         if cls._DATE_INTENT.search(query) and not cls._DATE_FACT.search(text):
             if not (cls._CONDITIONAL_TIME.search(query) and cls._CONDITION_FACT.search(text)):
                 return False
@@ -269,7 +302,8 @@ class DocumentAnswerValidator:
                        and (1300 <= int(v) <= 1499 or 1900 <= int(v) <= 2099))}
             if len(values) < 2:
                 return False
-        if re.search(r"(?:چند|چقدر|مبلغ|بودجه|درآمد|هزینه|افزایش)\b", query):
+        # "افزایش سرویس" is a project name, not a numeric answer request.
+        if re.search(r"(?:چند|چقدر|مبلغ|بودجه|درآمد|هزینه|میزان\s+افزایش)\b", query):
             normalized = DocumentRetrievalService._normalized_tokens(text)
             actual = [t for t in normalized if t.isdecimal() and not (
                 len(t) == 4 and (1300 <= int(t) <= 1499 or 1900 <= int(t) <= 2099))]
@@ -292,6 +326,107 @@ class DocumentAnswerValidator:
             if enumerated < n and text.count("؟") < n and text.count(";") < n - 1:
                 return False
         return True
+
+
+    @classmethod
+    def _single_claim_value(cls, query: str, text: str) -> tuple[str, ...] | None:
+        """Return one explicit value of the requested kind, never unrelated digits."""
+        if re.search(r"نرخ|درصد", query):
+            values = [m.group(1) for m in cls._PERCENT.finditer(text)]
+        elif re.search(r"چه\s+کسی|مسئول|نام\s+(?:فرد|شخص)|به\s+عهده", query):
+            values = [m.group(0) for m in cls._NAMED_PERSON.finditer(text)]
+        elif re.search(r"تاریخ|چه\s+روزی|چه\s+زمانی|روز\s+قطعی|زمان\s+قطعی", query):
+            values = [" ".join(m.groups()) for m in cls._DATED_CLAIM.finditer(text)]
+        elif re.search(r"ظرفیت\b.*(?:نفر|چند)|ظرفیت\s+(?:قطعی|نهایی)", query):
+            values = [m.group(1) for m in cls._CAPACITY_CLAIM.finditer(text)]
+        elif re.search(r"بودجه|اعتبار|مبلغ", query):
+            values = [m.group(1) for m in cls._MONEY_CLAIM.finditer(text)]
+        else:
+            return None
+        if len(values) != 1:
+            return None
+        return tuple(DocumentRetrievalService._normalized_tokens(values[0]))
+
+    @classmethod
+    def conflicting_claim_evidence(cls, query: str, chosen: tuple, source: tuple) -> tuple:
+        """Find nearby, explicit same-topic contradictions missed by ranked retrieval.
+
+        The opposing excerpt must contain an adversative marker, quote the same
+        requested subject, and disagree on exactly one typed value. Unrelated
+        dates, quantities, metrics and periods are not conflicts.
+        """
+        if not chosen or re.search(r"مقایسه|تفاوت\s+دو", query):
+            return ()
+        requested = set(DocumentRetrievalService._query_terms(query)) - {
+            "قطعی", "نهایی", "طرح", "برنامه", "روز", "زمان", "چه", "چند",
+        }
+        query_measures = set(DocumentRetrievalService._normalized_tokens(query)) & cls._RATE_MEASURES
+        for anchor in chosen:
+            anchor_value = cls._single_claim_value(query, anchor.text)
+            if not anchor_value:
+                continue
+            anchor_tokens = set(DocumentRetrievalService._normalized_tokens(anchor.text))
+            for candidate in source:
+                if candidate == anchor or abs(candidate.document_order - anchor.document_order) > 3:
+                    continue
+                if not re.search(r"\bاما\b|\bمتناقض\b|\bدر\s+مقابل\b", candidate.text):
+                    continue
+                original, other = anchor.source_location, candidate.source_location
+                if original.document_type != other.document_type:
+                    continue
+                if (original.document_type == "pdf"
+                        and original.page != other.page):
+                    continue
+                if (original.document_type == "docx"
+                        and original.section and other.section
+                        and original.section != other.section):
+                    continue
+                candidate_tokens = set(DocumentRetrievalService._normalized_tokens(candidate.text))
+                if len(requested & anchor_tokens & candidate_tokens) < 2:
+                    continue
+                role_terms = requested & anchor_tokens & {
+                    "پیگیر", "تحویل", "آغاز", "پایان", "تکمیل",
+                    "بازچرخان", "نهایی", "فروش", "ریزش",
+                }
+                if role_terms and not role_terms & candidate_tokens:
+                    continue
+                anchor_years = {
+                    term for term in anchor_tokens if term.isdecimal()
+                    and len(term) == 4
+                    and (1300 <= int(term) <= 1499 or 1900 <= int(term) <= 2099)
+                }
+                candidate_years = {
+                    term for term in candidate_tokens if term.isdecimal()
+                    and len(term) == 4
+                    and (1300 <= int(term) <= 1499 or 1900 <= int(term) <= 2099)
+                }
+                if anchor_years and candidate_years and anchor_years != candidate_years:
+                    continue
+                # Different named measures such as churn and growth in the
+                # same period are not logically contradictory.
+                if re.search(r"نرخ|درصد", query):
+                    anchor_measures = anchor_tokens & cls._RATE_MEASURES
+                    candidate_measures = candidate_tokens & cls._RATE_MEASURES
+                    if (query_measures and not query_measures.issubset(anchor_measures)
+                            or candidate_measures - anchor_measures):
+                        continue
+                requested_periods = {
+                    (month, year.translate(DocumentRetrievalService._CHAR_MAP))
+                    for month, year in cls._MONTH_YEAR.findall(query)
+                }
+                if requested_periods and any(
+                    not requested_periods.issubset({
+                        (month, year.translate(DocumentRetrievalService._CHAR_MAP))
+                        for month, year in cls._MONTH_YEAR.findall(segment.text)
+                    })
+                    for segment in (anchor, candidate)
+                ):
+                    continue
+                candidate_value = cls._single_claim_value(query, candidate.text)
+                if candidate_value and candidate_value != anchor_value:
+                    return tuple(sorted((anchor, candidate),
+                                        key=lambda seg: seg.document_order))
+        return ()
 
     @classmethod
     def conflicting_percent_evidence(cls, query: str, chosen: tuple, source: tuple):

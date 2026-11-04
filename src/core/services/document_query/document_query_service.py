@@ -287,8 +287,13 @@ class DocumentQueryService:
                     query, excerpts, heading_terms=hit.heading_terms
                 ):
                     continue
-                contradictions = DocumentAnswerValidator.conflicting_percent_evidence(
-                    query, excerpts, result.source_segments
+                contradictions = (
+                    DocumentAnswerValidator.conflicting_claim_evidence(
+                        query, excerpts, result.source_segments
+                    )
+                    or DocumentAnswerValidator.conflicting_percent_evidence(
+                        query, excerpts, result.source_segments
+                    )
                 )
                 if contradictions:
                     return DocumentQueryResult(

@@ -25,7 +25,7 @@ No HTTP failure is discarded. A zero denominator yields null, not 100%.
 
 Supporting metric: Found Question Success = full correct answers / 18 answerable questions.
 
-Partial answers lower Completeness and are not fully Correct. False abstentions lower Completeness. Conflicts require two grounded quotations and a null answer. Literal substring scoring is a conservative proxy for fact presence and original-source provenance, NOT a semantic entailment judge.
+Partial answers lower Completeness and are not fully Correct. False abstentions lower Completeness. Conflicts require two grounded quotations and a null answer. TXT source provenance additionally requires the real one-based source paragraph index, document type and source location type to agree with the cited text. Literal substring scoring is a conservative proxy for fact presence and original-source provenance, NOT a semantic entailment judge.
 
 ## Changed files
 
@@ -39,7 +39,7 @@ No model, runtime code, REST schema, dependencies or frozen prior datasets chang
 
 ## Verification boundary
 
-Assistant isolated local copy: compileall PASS; scorer unit tests **17 passed**; fixture validation: **34 labelled questions**. This is not a full-repository pytest or live inference run.
+Assistant isolated local copy: compileall PASS; scorer unit tests **19 passed**; fixture validation: **34 labelled questions**. This is not a full-repository pytest or live inference run.
 
 Prior user Windows environment, unchanged runtime: **113 focused / 545 full tests passed**, 6/6 source-exact TXT/PDF/DOCX × two modes live smoke passed. These do NOT score the new 34 queries.
 

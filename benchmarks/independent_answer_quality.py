@@ -91,15 +91,24 @@ def evaluate_case(case: dict, doc: dict, payload: dict | None, *, http_ok: bool 
     status = payload.get("status") if isinstance(payload, dict) else None
     answer = payload.get("answer") if isinstance(payload, dict) else None
     evidence = payload.get("evidence") if isinstance(payload, dict) else None
-    valid_response = (http_ok and status in _STATUSES
+    valid_response = (http_ok and isinstance(status, str) and status in _STATUSES
                       and (answer is None or isinstance(answer, str))
                       and isinstance(evidence, list)
                       and all(isinstance(item, dict) and isinstance(item.get("text"), str)
                               for item in evidence))
     source = doc["text"]
+    paragraphs = source.split("\n\n")
     texts = [item["text"] for item in evidence] if valid_response else []
-    grounded = bool(valid_response and texts and all(t and t in source for t in texts)
-                    and answer == "\n".join(texts))
+    valid_locations = bool(valid_response and texts and all(
+        item.get("document_type") == "txt"
+        and item.get("location_type") == "paragraph"
+        and type(item.get("paragraph")) is int
+        and 1 <= item["paragraph"] <= len(paragraphs)
+        and item.get("page") is None
+        and item["text"] in paragraphs[item["paragraph"] - 1]
+        for item in evidence
+    ))
+    grounded = bool(valid_locations and answer == "\n".join(texts))
     valid_empty = bool(valid_response and answer is None and not texts)
     expected_facts = case["facts"]
     matched = sum(fact in answer for fact in expected_facts) if expected == "found" and status == "found" and grounded else 0
@@ -107,7 +116,7 @@ def evaluate_case(case: dict, doc: dict, payload: dict | None, *, http_ok: bool 
                     and matched == len(expected_facts))
     conflict_supported = bool(
         valid_response and status == "ambiguous" and answer is None
-        and texts and all(t and t in source for t in texts)
+        and valid_locations
         and all(any(quote in t for t in texts) for quote in case.get("competing_quotes", []))
     )
     abstention_correct = bool(

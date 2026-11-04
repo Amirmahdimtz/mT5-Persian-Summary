@@ -21,8 +21,11 @@ DOC = {"text": "بودجه پروژه ۳۵۰ میلیون بود.\n\nبودجه 
 
 
 def result(status, text=None, evidence=None):
+    paragraphs = DOC["text"].split("\n\n")
     return {"status": status, "answer": text,
-            "evidence": [{"text": quote} for quote in (evidence or [])]}
+            "evidence": [{"text": quote, "document_type": "txt",
+                          "location_type": "paragraph", "paragraph": paragraphs.index(quote) + 1,
+                          "page": None} for quote in (evidence or [])]}
 
 
 def test_fixed_fixture_is_valid_and_covers_all_classes():
@@ -113,3 +116,18 @@ def test_tampered_fixture_is_rejected(tmp_path):
     path.write_text(json.dumps(tampered, ensure_ascii=False), encoding="utf-8")
     with pytest.raises(EvaluationInputError):
         load_fixture(path)
+
+
+def test_incorrect_source_paragraph_cannot_pass_grounding():
+    text = "بودجه پروژه ۳۵۰ میلیون بود."
+    payload = result("found", text, [text])
+    payload["evidence"][0]["paragraph"] = 2
+    row = evaluate_case(case("found", ["۳۵۰ میلیون"]), DOC, payload)
+    assert row["source_grounded"] is False and row["complete_and_correct"] is False
+
+
+def test_malformed_status_fails_closed_without_crashing():
+    payload = result("found", "بودجه پروژه ۳۵۰ میلیون بود.", ["بودجه پروژه ۳۵۰ میلیون بود."])
+    payload["status"] = ["found"]
+    row = evaluate_case(case("found", ["۳۵۰ میلیون"]), DOC, payload)
+    assert row["actual_status"] == "invalid_response"

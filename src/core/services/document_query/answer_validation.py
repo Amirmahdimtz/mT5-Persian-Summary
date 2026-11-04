@@ -118,6 +118,11 @@ class DocumentAnswerValidator:
         """Bind a percentage to the queried metric within its source clause."""
         focus = cls._semantic_terms(query) - {
             "نرخ", "درصد", "سهم", "میزان", "قطعی", "واقع", "اصلی",
+            "سال", "ماه", "دوره", "فروردین", "اردیبهشت", "خرداد",
+            "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر",
+            "دی", "بهمن", "اسفند", "ژانویه", "فوریه", "مارس",
+            "آوریل", "مه", "ژوئن", "ژوئیه", "اوت", "سپتامبر",
+            "اکتبر", "نوامبر", "دسامبر",
         }
         for clause in re.split(r"[؛\n]|(?<=[.!؟])\s+", text):
             if not cls._PERCENT.search(clause):

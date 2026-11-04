@@ -177,6 +177,10 @@ def test_plain_paragraph_heading_supports_enumerated_answer_without_leaking():
         "نرخ رشد فروش چند درصد بود؟",
         "نرخ رشد فروش اعلام نشد؛ نرخ ریزش مشتری ۳ درصد بود.",
     ),
+    (
+        "نرخ رشد فروش در مهر ۱۴۰۴ چند درصد بود؟",
+        "نرخ رشد فروش در مهر ۱۴۰۴ اعلام نشد؛ نرخ ریزش مشتری در همان مهر ۱۴۰۴ برابر ۳ درصد بود.",
+    ),
 ])
 def test_unrelated_or_unverified_slots_do_not_create_answers(question, source):
     result = _ask(source, question)

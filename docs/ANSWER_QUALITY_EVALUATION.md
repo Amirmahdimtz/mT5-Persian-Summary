@@ -136,3 +136,32 @@ $results.records | Where-Object {
 ```
 
 Do not stop unrelated processes or overwrite the original report. Even with perfect new synthetic regression metrics, Production remains **NO-GO** until independent authorized Persian documents, human semantic labels, Stage 10 factual summarization gate and security/release criteria pass.
+
+
+## v2 live quality results and residual regression fix (2026-11-04)
+
+**User-measured `3068d5779d3f031ff9f991be2a2b63ad37211ca9` v2 synthetic HTTP baseline:** 34/34 valid responses; observed labels 18 found / 12 not_found / four ambiguous; Answer Correctness **18/18 100%**; False Positive Rate **0/16 0%**; Abstention Accuracy **16/16 100%**; Answer Completeness **21/21 100%**. This is a public synthetic regression, **not an untouched holdout or real-world semantic correctness certification**.
+
+**Full-suite regression at that same revision:** 573 passed, **two failed**, two warnings. Focused suite: 141 passed, **two failed**, one warning. The failures were:
+- `test_distinct_percentage_metrics_in_txt_are_not_conflicts`: sales-growth and customer-churn rates in the same period were incorrectly classified as conflicting because the candidate shared the company, period and "but" connector; it names a *different* rate measure.
+- `test_stage12_multipart_stays_inside_original_txt_paragraph`: a legitimate two-part question about budget and "growth of it" was rejected because percentage validation required a topic word from the other half of the question in its percent clause.
+
+A single targeted validator-only code change now excludes explicitly different rate measures from the conflicting-rate comparison, while preserving same-metric anaphoric conflicts; for amount+percentage multipart questions, percentage validation extracts measure terms from its percentage subquery only. Existing tests for all these distinctions are retained as regressions. This follow-up **has not yet been verified with full GitHub checkout pytest or a new live v3 benchmark**. No product, model, architecture, extraction/retrieval, API-schema or benchmark-fixture changes.
+
+After pulling `main`, run on Windows PowerShell from the repository root:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = "development"
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m compileall -q src tests benchmarks
+.\.venv\Scripts\python.exe -m pytest -q tests/test_answer_validation.py tests/test_stage11_retrieval.py tests/test_stage12_document_query.py tests/test_stage13_quality.py tests/test_independent_answer_quality.py
+.\.venv\Scripts\python.exe -m pytest -q
+# Restart only the known, existing Development Uvicorn on port 8001 if needed.
+# In a second terminal while Uvicorn is serving the updated code:
+.\.venv\Scripts\python.exe -m benchmarks.independent_answer_quality --base-url http://127.0.0.1:8001 --output .\local_answer_quality_eval_v3.json
+$report = Get-Content .\local_answer_quality_eval_v3.json -Raw | ConvertFrom-Json
+$report.metrics | Format-List
+```
+
+Compare against the immutable v2 before claiming improvement. **Production stays NO-GO** pending real-world independently adjudicated Persian documents, original Stage 10 summarization thresholds and security/operational release checks.

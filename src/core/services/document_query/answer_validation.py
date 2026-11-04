@@ -190,6 +190,19 @@ class DocumentAnswerValidator:
             "آوریل", "مه", "ژوئن", "ژوئیه", "اوت", "سپتامبر",
             "اکتبر", "نوامبر", "دسامبر",
         }
+        # A multipart amount + percentage question has distinct answer slots.
+        # Its amount topic need not occur again in a source sentence saying
+        # "growth of it"; check rate descriptors from the percentage subquery.
+        rate_query = query
+        parts = re.split(r"\s+و\s+", query, maxsplit=1)
+        if (len(parts) == 2
+                and re.search(r"چقدر|بودجه|مبلغ|هزینه", parts[0])
+                and re.search(r"درصد", parts[1])):
+            rate_query = parts[1]
+        measures = (
+            set(DocumentRetrievalService._normalized_tokens(rate_query))
+            & cls._RATE_MEASURES
+        )
         requested_periods = {
             (month, year.translate(DocumentRetrievalService._CHAR_MAP))
             for month, year in cls._MONTH_YEAR.findall(query)
@@ -204,8 +217,6 @@ class DocumentAnswerValidator:
             if requested_periods and not requested_periods.issubset(clause_periods):
                 continue
             clause_terms = set(DocumentRetrievalService._normalized_tokens(clause))
-            measures = (set(DocumentRetrievalService._normalized_tokens(query))
-                        & cls._RATE_MEASURES)
             if measures and not measures.issubset(clause_terms):
                 continue
             if cls._MISSING_VALUE.search(clause):
@@ -305,9 +316,9 @@ class DocumentAnswerValidator:
             t for t in DocumentRetrievalService._normalized_tokens(anchor.text)
             if t.isdecimal() and len(t) == 4
         }
-        anchor_terms = cls._semantic_terms(query) & set(
-            DocumentRetrievalService._normalized_tokens(anchor.text)
-        )
+        anchor_tokens = set(DocumentRetrievalService._normalized_tokens(anchor.text))
+        anchor_terms = cls._semantic_terms(query) & anchor_tokens
+        anchor_measures = anchor_tokens & cls._RATE_MEASURES
         for segment in source:
             if segment == anchor:
                 continue
@@ -333,7 +344,14 @@ class DocumentAnswerValidator:
             }
             if anchor_years and candidate_years and anchor_years != candidate_years:
                 continue
-            shared = anchor_terms & set(DocumentRetrievalService._normalized_tokens(segment.text))
+            candidate_tokens = set(DocumentRetrievalService._normalized_tokens(segment.text))
+            # A different explicitly named measure (sales growth vs customer
+            # churn) is not conflicting evidence, even in the same period.
+            # Unnamed "the same equipment" rates can still conflict.
+            candidate_measures = candidate_tokens & cls._RATE_MEASURES
+            if candidate_measures - anchor_measures:
+                continue
+            shared = anchor_terms & candidate_tokens
             metrics = shared - {
                 "نرخ", "درصد", "سال", "دوره", "مهر", "آبان", "آذر",
                 "دی", "بهمن", "اسفند", "فروردین", "اردیبهشت", "خرداد",

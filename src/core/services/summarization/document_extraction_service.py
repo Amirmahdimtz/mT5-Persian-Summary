@@ -270,7 +270,7 @@ class DocumentExtractionService:
                 text = page.extract_text(
                     extraction_mode="layout", layout_mode_strip_rotated=False
                 ) or ""
-                text = self._restore_visual_rtl_text(text)
+                text = self._repair_reversed_pdf_years(self._restore_visual_rtl_text(text))
                 total_characters += len(text)
                 if total_characters > self.MAX_TEXT_CHARACTERS:
                     raise DocumentLimitError("extracted text exceeds the character limit")
@@ -338,6 +338,30 @@ class DocumentExtractionService:
             "سلام", "صفحه", "سال", "داده", "هوش", "مصنوعی",
         }
     )
+
+    @staticmethod
+    def _repair_reversed_pdf_years(text: str) -> str:
+        """Correct clearly impossible reversed years after Persian month names.
+
+        RTL PDF producers can reverse year digits while preserving the month.
+        Never transform unrelated numbers, financial amounts or plausible years.
+        """
+        months = (
+            "فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|"
+            "آذر|دی|بهمن|اسفند"
+        )
+        pattern = re.compile(rf"((?:{months})\s+)([۰-۹٠-٩0-9]{{4}})")
+
+        def repair(match: re.Match[str]) -> str:
+            digits = match.group(2)
+            normalized = "".join(str(unicodedata.digit(char)) for char in digits)
+            year, reversed_year = int(normalized), int(normalized[::-1])
+            if (year > 2500 and
+                    (1300 <= reversed_year <= 1499 or 1900 <= reversed_year <= 2099)):
+                return match.group(1) + digits[::-1]
+            return match.group(0)
+
+        return pattern.sub(repair, text)
 
     @classmethod
     def _restore_visual_rtl_text(cls, text: str) -> str:

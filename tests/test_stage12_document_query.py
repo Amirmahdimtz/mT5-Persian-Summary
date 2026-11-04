@@ -325,3 +325,118 @@ def test_relevance_focused_summary_remains_bounded_and_source_exact():
     assert len(result.answer) <= 680
     assert "مراکز درمانی" not in result.answer
 
+
+def test_stage12_long_question_joins_all_source_sentences_in_one_docx_paragraph():
+    raw = _docx(
+        "پیشگفتار پژوهش آموزشی.",
+        "چهار معیار فناوری آموزشی مطرح شد: آیا مناسب یادگیری است؟ "
+        "آیا دسترسی عادلانه دارد؟ آیا در مقیاس بزرگ قابل اجراست؟ "
+        "آیا پایداری آن تضمین می‌شود؟",
+    )
+    result = asyncio.run(_service().query_file_async(
+        raw, "policy.docx", "چهار معیار فناوری آموزشی چیست؟",
+    ))
+    assert result.status == "found"
+    assert all(word in result.answer for word in ("مناسب", "عادلانه", "مقیاس", "پایداری"))
+    assert result.answer == "\n".join(item.text for item in result.evidence)
+    assert all(item.source_location.paragraph == 2 for item in result.evidence)
+
+
+def test_stage12_adjacent_financial_facts_are_not_falsely_ambiguous():
+    raw = (
+        "درآمد کل شرکت در سال مالی ۲۰۲۴ برابر ۲۴۵ میلیون دلار "
+        "و در سال مالی ۲۰۲۳ برابر ۲۱۱ میلیون دلار ثبت شد. "
+        "اختلاف مطلق درآمد ۳۴ میلیون دلار بود.\n\n"
+        "سود عملیاتی شرکت در سال مالی ۲۰۲۴ برابر ۱۰۹ میلیون دلار بود."
+    ).encode()
+    result = asyncio.run(_service().query_file_async(
+        raw, "finance.txt", "درآمد کل شرکت در سال‌های مالی ۲۰۲۴ و ۲۰۲۳ "
+        "چقدر بود و اختلاف مطلق آن‌ها چیست؟",
+    ))
+    assert result.status == "found"
+    assert all(value in result.answer for value in ("۲۴۵", "۲۱۱", "۳۴"))
+    assert "سود عملیاتی" not in result.answer
+
+
+def test_stage12_section_heading_supports_explicit_enumeration_not_unrelated_text():
+    raw = _docx(
+        "[S01] ارزیابی مداخله آموزشی",
+        "گروه مداخله با گروه مقایسه هم‌ارز ارزیابی شد.",
+        "[S02] تهدیدهای اعتبار نتیجه",
+        "سه خطای تحلیلی نتیجه ارزیابی را مخدوش می‌کنند: "
+        "اول سوگیری انتخاب، دوم ریزش نمونه و سوم جابه‌جایی معیار.",
+    )
+    result = asyncio.run(_service().query_file_async(
+        raw, "study.docx", "دو تهدید اعتبار ارزیابی مداخله آموزشی چیست؟",
+    ))
+    assert result.status == "found"
+    assert "سوگیری انتخاب" in result.answer
+    assert "ریزش نمونه" in result.answer
+    assert "گروه مقایسه" not in result.answer
+
+
+def test_stage12_multipart_stays_inside_original_txt_paragraph():
+    source = (
+        "بودجه آموزش معلمان ۳۵۰ میلیون تومان است. "
+        "رشد آن نسبت به پارسال ۲۰ درصد اعلام شد.\n\n"
+        "درآمد بیمارستان ۴۰۰ میلیون تومان است."
+    )
+    result = asyncio.run(_service().query_file_async(
+        source.encode(), "report.txt",
+        "بودجه آموزش معلمان چقدر است و رشد آن چند درصد بود؟",
+    ))
+    assert result.status == "found"
+    assert "۳۵۰" in result.answer and "۲۰ درصد" in result.answer
+    assert "بیمارستان" not in result.answer
+    assert len(result.answer) <= _service().MAX_ANSWER_CHARACTERS
+
+
+def test_stage12_pdf_neighborhood_does_not_cross_section_heading():
+    from src.core.services.summarization.document_extraction_service import DocumentSegment, SourceLocation
+    from src.core.services.summarization.document_retrieval_service import EvidenceHit
+
+    texts = (
+        "متن غیرمرتبط بخش قبل.",
+        "[A01] نشست ۱۰۲ در تاریخ ۲۶ خرداد ۱۴۰۳ برگزار شد.",
+        "جلسه از ساعت ۱۰:۳۰ تا ۱۲:۳۰ بود.",
+        "محل برگزاری سالن اجتماعات تهران بود.",
+        "[A02] موضوع مستقلی در نشست دیگری مطرح شد.",
+        "این جلسه ارتباطی با پرسش ندارد.",
+    )
+    segments = tuple(
+        DocumentSegment(text, SourceLocation("pdf", page=1), index)
+        for index, text in enumerate(texts)
+    )
+    excerpt = DocumentQueryService._source_neighbors(
+        EvidenceHit(segments[1], 1.0, ("نشست",)), segments
+    )
+    joined = "\n".join(item.text for item in excerpt)
+    assert "۱۰:۳۰" in joined and "سالن اجتماعات" in joined
+    assert "متن غیرمرتبط" not in joined and "[A02]" not in joined
+
+
+def test_stage12_financial_multipart_answer_includes_growth_and_2024_net_income():
+    raw = _docx(
+        "[F05] سود خالص و نسبت تغییر",
+        "سود خالص در سال مالی ۲۰۲۴ برابر ۸۸٬۱۳۶ میلیون دلار بود؛ "
+        "در ۲۰۲۳ این رقم ۷۲٬۳۶۱ میلیون دلار شد. "
+        "رشد اعلام‌شده سود خالص بر مبنای GAAP برابر ۲۲ درصد است.",
+        "[F06] مبنای تعدیل",
+        "سود تعدیل‌شده سال ۲۰۲۳ برابر ۷۳٬۳۰۷ میلیون دلار گزارش شد.",
+    )
+    result = asyncio.run(_service().query_file_async(
+        raw, "financial.docx",
+        "سود خالص در ۲۰۲۴ و نرخ رشد GAAP آن نسبت به ۲۰۲۳ چقدر بود؟",
+    ))
+    assert result.status == "found"
+    assert "۸۸٬۱۳۶" in result.answer and "۲۲ درصد" in result.answer
+    assert "۷۳٬۳۰۷" not in result.answer
+
+
+def test_stage12_multipart_missing_topic_still_abstains():
+    raw = "بودجه پروژه ۳۵۰ میلیون تومان تعیین شد. هزینه نهایی در آینده ثبت خواهد شد.".encode()
+    result = asyncio.run(_service().query_file_async(
+        raw, "report.txt", "واکسن کودکان در چه زمانی و کدام شهر توزیع شد؟",
+    ))
+    assert result.status == "not_found"
+    assert result.answer is None and result.evidence == ()

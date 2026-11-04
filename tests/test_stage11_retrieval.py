@@ -229,3 +229,45 @@ def test_stage11_ambiguous_people_with_same_responsibility():
     result = service.retrieve_segments(segments, "مسئول پیگیری", top_k=1)
     assert result.status == "ambiguous"
     assert len(result.evidence) == 1
+
+
+def test_stage11_conflict_requires_shared_claim_subject():
+    service = DocumentRetrievalService(DocumentExtractionService())
+    raw = (
+        "درآمد کل شرکت در سال مالی ۲۰۲۴ برابر ۲۴۵ میلیون دلار است.\n\n"
+        "سود عملیاتی شرکت در سال مالی ۲۰۲۴ برابر ۱۰۹ میلیون دلار است."
+    ).encode()
+    result = asyncio.run(service.retrieve_async(
+        raw, "financial.txt", "درآمد کل شرکت در ۲۰۲۴ چقدر بود؟"
+    ))
+    assert result.status == "found"
+    assert "۲۴۵" in result.evidence[0].segment.text
+
+
+def test_stage11_conflict_same_claim_with_distinct_values_still_ambiguous():
+    service = DocumentRetrievalService(DocumentExtractionService())
+    raw = (
+        "بودجه پروژه ۳۵۰ میلیون تومان اعلام شد.\n\n"
+        "بودجه پروژه ۴۰۰ میلیون تومان اعلام شد."
+    ).encode()
+    result = asyncio.run(service.retrieve_async(raw, "report.txt", "بودجه پروژه"))
+    assert result.status == "ambiguous"
+
+
+def test_stage11_result_has_bounded_original_segments_for_source_expansion():
+    service = DocumentRetrievalService(DocumentExtractionService())
+    raw = "محور اول آموزش معلمان است. محور دوم تهیه تجهیزات است.".encode()
+    result = asyncio.run(service.retrieve_async(raw, "report.txt", "محور آموزش"))
+    assert result.status == "found"
+    assert len(result.source_segments) == 2
+    assert all(item.text in raw.decode() for item in result.source_segments)
+
+
+def test_stage11_pdf_year_repair_is_contextual_and_preserves_valid_dates():
+    repair = DocumentExtractionService._repair_reversed_pdf_years
+    assert repair("جلسه مورخ ۲۶ خرداد ۳۰۴۱ برگزار شد.") == (
+        "جلسه مورخ ۲۶ خرداد ۱۴۰۳ برگزار شد."
+    )
+    assert repair("۲۶ خرداد ۱۴۰۳ و ۲۰ مهر ۲۰۲۴") == "۲۶ خرداد ۱۴۰۳ و ۲۰ مهر ۲۰۲۴"
+    assert repair("شناسه ۳۰۴۱ در سند ثبت شد.") == "شناسه ۳۰۴۱ در سند ثبت شد."
+    assert repair("۲۶ خرداد ۳۰۴۱؛ ۱۴ آبان ۳۰۴۱") == "۲۶ خرداد ۱۴۰۳؛ ۱۴ آبان ۱۴۰۳"

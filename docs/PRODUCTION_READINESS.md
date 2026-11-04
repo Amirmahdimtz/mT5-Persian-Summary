@@ -179,3 +179,32 @@ curl.exe -sS http://127.0.0.1:8005/api/v1/health
 ```
 
 If a name/port is already in use, **inspect first** rather than replacing a running container. Review `review_v2.csv` question by question, including no-answer/ambiguous cases, exact source positions, multi-fact coverage and dates/amounts. **Do not** write semantic labels until independently checked; do not alter frozen signoff thresholds or tune on sealed Holdout. Future production consideration requires a genuinely independent dataset and original Stage 10 pass.
+
+## G. Round-3 source-grounded multi-fact query repair (2026-11-04)
+
+The previously deployed Docker `search-fix` passed 510 Windows tests and real 25/25 source HTTP responses; independent semantic pass is **not established**. Assistant review of `responses_v2.json` marked 16 fully supported and complete, seven incomplete, one topical nonanswer and one false `ambiguous` Q17. This is an exploratory, user-provided, non-independent dataset; never insert reference answers into the service.
+
+The minimal round-3 patch extends answer mode across adjacent *verbatim extracted* sentences of a single TXT/DOCX paragraph or a short PDF page-local section without crossing a recognized heading. It preserves source location, ordering, word-for-word excerpts, existing evidence/API DTOs, source quote validation and a total 1,200-character answer budget. Section heading terms can help rank and admit otherwise incomplete lexically matched passages, but headings are not used as invented answer text. Numerical/person conflicts now require a near-identical claimed subject; unrelated fiscal metrics (revenue versus operating profit) are not logically conflicting. True contradictory budget/date/person claims remain abstentions. PDF repair is restricted to obviously impossible reversed four-digit years after Persian month names; extraction may still vary by PDF generator and PyPDF version. No OCR or model change.
+
+**Verification boundary:** 8/8 new local isolated source-class tests passed; a representative-extraction trial over the supplied five documents/25 questions found promising excerpt coverage; an approximate frozen Development Stage 11 check retained 15/15 source quote matches. These are **not** current-source Windows suite, CI, a re-built Docker regression, human quality score, or a Production GO. Eleven synthetic regression tests were added to Stage 11/12 test modules; the actual GitHub test suite must be run on user Windows before quality claims.
+
+### Local Windows PowerShell verification, from repository root
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = "development"
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage11_retrieval.py tests/test_stage12_document_query.py tests/test_stage13_quality.py
+.\.venv\Scripts\python.exe -m pytest -q
+docker build --progress=plain -t mt5-persian-summary:query-context-v3 .
+docker ps -a --filter "name=mt5-query-context-v3"
+Get-NetTCPConnection -State Listen -LocalPort 8006 -ErrorAction SilentlyContinue
+# Only when the container name and port are unused:
+docker run -d --name mt5-query-context-v3 --init --memory 8g --cpus 2 --pids-limit 256 --security-opt no-new-privileges -p 127.0.0.1:8006:8000 -v mt5_hf_cache:/home/app/.cache/huggingface -e env_type=production mt5-persian-summary:query-context-v3
+curl.exe -sS http://127.0.0.1:8006/api/v1/health
+.\.venv\Scripts\python.exe .\local_production_qa25\run_persian_qa25.py qa --archive .\local_production_qa25\persian_5_documents_25_qa.zip --questions .\local_production_qa25\questions_only.txt --base-url http://127.0.0.1:8006 --output .\local_production_qa25\responses_v3.json
+.\.venv\Scripts\python.exe .\local_production_qa25\run_persian_qa25.py review --results .\local_production_qa25\responses_v3.json --answer-key .\local_production_qa25\answer_key_25_questions.json --output .\local_production_qa25\review_v3.csv
+```
+
+Examine Q01/Q03/Q04/Q11/Q15/Q16/Q17/Q18/Q21 first, then audit all questions (including any newly found false positives, unsupported answers, source location and date/order fidelity). Do not overwrite `responses_v1.json` or `responses_v2.json`. Do not stop/remove the previously verified containers by default. Production remains **NO_GO** due to original Stage 10 factual quality gate, independent review and deployment/security prerequisites.

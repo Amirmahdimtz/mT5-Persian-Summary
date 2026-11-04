@@ -30,12 +30,14 @@ class EvidenceHit:
     segment: DocumentSegment
     score: float
     matched_terms: tuple[str, ...]
+    heading_terms: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class RetrievalResult:
     status: Literal["found", "not_found", "ambiguous"]
     evidence: tuple[EvidenceHit, ...]
+    source_segments: tuple[DocumentSegment, ...] = ()
 
 
 @inject
@@ -152,6 +154,11 @@ class DocumentRetrievalService:
                 value += 1.0
         if len(extra_numbers) >= 2:
             value += 0.3
+        # For enumerated questions, prefer passages containing actual items.
+        if re.search(r"(?:دو|سه|چهار|پنج)\s+(?:تهدید|معیار|محور|دلیل|خطا|عامل)", query):
+            normalized = set(cls._normalized_tokens(text))
+            if "اول" in normalized and "دوم" in normalized:
+                value += 2.0
         if cls._PERCENT_FACT.search(text) and not cls._PERCENT_INTENT.search(query):
             value -= 1.5
         return value
@@ -166,10 +173,33 @@ class DocumentRetrievalService:
         )
 
     @classmethod
+    def _claim_terms(cls, text: str) -> frozenset[str]:
+        """Compare claimed subjects before comparing numbers or names."""
+        people = set()
+        for match in cls._PERSON.finditer(text):
+            people.update(cls._normalized_tokens(match.group(0)))
+        return frozenset(
+            term for term in cls._normalized_tokens(text)
+            if (not term.isdecimal() and term not in cls._STOP_WORDS
+                and term not in people and term not in {
+                    "آقای", "خانم", "سال", "مال", "میلیون", "میلیارد",
+                    "تومان", "دلار", "برابر", "رقم", "میزان", "اعلام",
+                    "گزارش", "شده", "بود", "است", "درصد",
+                })
+        )
+
+    @classmethod
+    def _same_claim_subject(cls, left: str, right: str) -> bool:
+        a, b = cls._claim_terms(left), cls._claim_terms(right)
+        return bool(a and b and len(a & b) / max(len(a), len(b)) >= 0.75)
+
+    @classmethod
     def _possibly_conflicting(cls, first: EvidenceHit, second: EvidenceHit) -> bool:
         if first.matched_terms != second.matched_terms:
             return False
         if second.score < first.score * 0.85:
+            return False
+        if not cls._same_claim_subject(first.segment.text, second.segment.text):
             return False
         first_nums, first_people = cls._explicit_facts(first.segment.text)
         second_nums, second_people = cls._explicit_facts(second.segment.text)
@@ -199,6 +229,7 @@ class DocumentRetrievalService:
         section_contexts: dict[int, set[str]] = {}
         sections: list[int | None] = []
         active_section: int | None = None
+        section_headings: dict[int, set[str]] = {}
         for segment in segments:
             vocabulary = set(self._normalized_tokens(segment.text))
             vocabularies.append(vocabulary)
@@ -212,6 +243,7 @@ class DocumentRetrievalService:
                     and self._SECTION_HEADING.match(segment.text)):
                 active_section = segment.document_order
                 section_contexts[active_section] = set(vocabulary)
+                section_headings[active_section] = set(vocabulary)
             sections.append(active_section if segment.source_location.document_type == "docx" else None)
             if active_section is not None and segment.source_location.document_type == "docx":
                 section_contexts[active_section].update(vocabulary)
@@ -242,11 +274,21 @@ class DocumentRetrievalService:
                 5.0 * direct_coverage + 3.0 * context_coverage
                 + 0.2 * len(found) + (1.0 if phrase else 0.0)
                 + self._numeric_score(query, terms, segment.text)
+                - (2.5 if segment.document_order == 0
+                   and "نوع سند:" in segment.text and len(segments) > 1 else 0.0)
+                + (3.0 * sum(weights[t] for t in terms if section is not None
+                             and t in section_headings[section]) / total_weight)
+                + (4.0 * sum(weights[t] for t in tuple(
+                    term for term in terms if term not in {"دو", "سه", "چهار", "پنج"}
+                )[:2] if section is not None and t in section_headings[section])
+                   / total_weight)
             )
-            hits.append(EvidenceHit(segment, score, found))
+            heading_terms = tuple(t for t in terms if section is not None
+                                  and t in section_headings[section])
+            hits.append(EvidenceHit(segment, score, found, heading_terms))
         hits.sort(key=lambda hit: (-hit.score, hit.segment.document_order))
         if not hits:
-            return RetrievalResult("not_found", ())
+            return RetrievalResult("not_found", (), tuple(segments))
 
         chosen = tuple(hits[:top_k])
         # Check one candidate beyond top_k, including when top_k=1.
@@ -254,7 +296,7 @@ class DocumentRetrievalService:
             self._possibly_conflicting(hits[0], candidate)
             for candidate in hits[1: min(len(hits), max(2, top_k + 1))]
         )
-        return RetrievalResult("ambiguous" if conflicting else "found", chosen)
+        return RetrievalResult("ambiguous" if conflicting else "found", chosen, tuple(segments))
 
     async def retrieve_async(
         self, content: bytes, filename: str, query: str, *, top_k: int = 3,

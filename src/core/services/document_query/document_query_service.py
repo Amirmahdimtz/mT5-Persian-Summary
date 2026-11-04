@@ -65,6 +65,7 @@ class DocumentQueryService:
     _PERSON_FACT = re.compile(r"(?:آقای|خانم)\s+[\u0600-\u06ff]+")
     _AMOUNT_FACT = re.compile(r"[0-9۰-۹٠-٩]|\b(?:یک|دو|سه|چهار|پنج|شش|هفت|هشت|نه|ده)\b")
     _MULTIPART = re.compile(r"(?:^|\s)(?:دو|سه|چهار)(?:\s|$)|\sو\s")
+    MAX_ANSWER_EXCERPTS = 7
 
     def __init__(self, document_retrieval_service: DocumentRetrievalService) -> None:
         self._retriever = document_retrieval_service
@@ -90,7 +91,7 @@ class DocumentQueryService:
         )
         if not terms:
             return False
-        covered = len(set(terms).intersection(hit.matched_terms))
+        covered = len(set(terms).intersection(hit.matched_terms + hit.heading_terms))
         if covered < DocumentRetrievalService._required_matches(len(terms)):
             return False
         source = hit.segment.text
@@ -102,18 +103,69 @@ class DocumentQueryService:
             return False
         return True
 
+    @classmethod
+    def _source_neighbors(cls, top: EvidenceHit, segments: tuple) -> tuple:
+        """Bounded source-exact neighboring sentences for multipart answers.
+
+        TXT and DOCX stay inside the real paragraph; PDF uses short page-local
+        windows without crossing explicit section boundaries.
+        """
+        if not segments:
+            return (top.segment,)
+        index = top.segment.document_order
+        if not 0 <= index < len(segments):
+            return (top.segment,)
+        loc = top.segment.source_location
+        if loc.paragraph is not None:
+            candidates = [
+                seg for seg in segments
+                if (seg.source_location.document_type == loc.document_type
+                    and seg.source_location.paragraph == loc.paragraph
+                    and seg.source_location.table == loc.table)
+            ]
+        elif loc.table is not None:
+            candidates = [
+                seg for seg in segments
+                if (seg.source_location.table == loc.table
+                    and seg.source_location.row == loc.row)
+            ]
+        else:
+            start = index
+            while (not cls._is_section_header(top.segment.text)
+                   and start > 0 and index - start < 2):
+                previous = segments[start - 1]
+                if previous.source_location.page != loc.page:
+                    break
+                start -= 1
+                if cls._is_section_header(previous.text):
+                    break
+            stop = index + 1
+            while stop < len(segments) and stop - index <= 4:
+                candidate = segments[stop]
+                if (candidate.source_location.page != loc.page
+                        or cls._is_section_header(candidate.text)):
+                    break
+                stop += 1
+            candidates = segments[start:stop]
+
+        chosen = []
+        used = 0
+        for segment in candidates:
+            length = len(segment.text) + (1 if chosen else 0)
+            if (len(chosen) >= cls.MAX_ANSWER_EXCERPTS
+                    or used + length > cls.MAX_ANSWER_CHARACTERS):
+                continue
+            chosen.append(segment)
+            used += length
+        return tuple(chosen) if top.segment in chosen else (top.segment,)
+
     @staticmethod
-    def _related_excerpt(top: EvidenceHit, candidate: EvidenceHit) -> bool:
-        """Join only excerpts from the same source location and local context."""
-        a, b = top.segment, candidate.segment
-        x, y = a.source_location, b.source_location
-        if x.document_type != y.document_type:
-            return False
-        if x.paragraph is not None:
-            return x.paragraph == y.paragraph and x.table == y.table
-        if x.table is not None:
-            return x.table == y.table and x.row == y.row
-        return x.page == y.page and abs(a.document_order - b.document_order) <= 2
+    def _is_section_header(text: str) -> bool:
+        return bool(re.search(
+            r"(?:\[\s*(?:[A-Z]\d{2}|\d{2}[A-Z])\s*\]"
+            r"|\]\s*(?:[A-Z]\d{2}|\d{2}[A-Z])\s*\[)",
+            text[:125],
+        ))
 
     async def query_file_async(
         self,
@@ -152,20 +204,14 @@ class DocumentQueryService:
             top = supported[0]
             if len(top.segment.text) > self.MAX_ANSWER_CHARACTERS:
                 return DocumentQueryResult("not_found", mode, query, None, ())
-            chosen = [top]
-            total = len(top.segment.text)
-            if self._MULTIPART.search(query):
-                for hit in sorted(supported[1:], key=lambda item: item.segment.document_order):
-                    if (len(chosen) >= 3 or not self._related_excerpt(top, hit)
-                            or total + len(hit.segment.text) + 1 > self.MAX_ANSWER_CHARACTERS):
-                        continue
-                    chosen.append(hit)
-                    total += len(hit.segment.text) + 1
-                chosen.sort(key=lambda item: item.segment.document_order)
+            chosen = (self._source_neighbors(top, result.source_segments)
+                      if self._MULTIPART.search(query) else (top.segment,))
             return DocumentQueryResult(
                 "found", mode, query,
-                "\n".join(hit.segment.text for hit in chosen),
-                tuple(self._source_evidence(hit) for hit in chosen),
+                "\n".join(segment.text for segment in chosen),
+                tuple(SourceEvidence(
+                    segment.text, segment.source_location, segment.document_order
+                ) for segment in chosen),
             )
 
         budget = self._SUMMARY_BUDGETS[summary_length or "medium"]

@@ -251,3 +251,20 @@ $report.records | Where-Object {
 ```
 
 Do not change production code solely to optimize this now-revealed synthetic corpus; adjudicate the failure evidence against source documents and validate proposed fixes using fresh, untouched examples.
+
+
+## Source-format failure classification — 160-case Development evaluation (2026-11-04)
+
+
+| Source format | Cases | Correct answerable | Correct returned found | False positive | Correct abstention | Grounded found |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| TXT | 53 | 40/40 | 40/42 | 2/13 | 11/13 | 42/42 |
+| DOCX | 54 | 39/40 | 39/44 | 4/14 | 10/14 | 44/44 |
+| PDF | 53 | 39/40 | 39/41 | 2/13 | 11/13 | 41/41 |
+
+
+- **Reported failed IDs:** `T01-Q06`, `T07-Q06` (TXT); `D01-Q06`, `D04-Q03`, `D04-Q06`, `D07-Q06`, `D10-Q06` (DOCX); `P02-Q02`, `P03-Q06`, `P09-Q06` (PDF). Thus 10 case failures: eight expected ambiguous returned `found`, one expected found returned `found` but lacked a reference atom (`D04-Q03`), and one expected found returned `not_found` (`P02-Q02`).
+- **Confusion matrix reconstructed exactly from the supplied records and aggregate:** expected found 120 → actual found 119 (118 fully correct, one missing a fact), not_found 1; expected not_found 30 → not_found 30; expected ambiguous 10 → actual found 8, ambiguous 2. All eight false positives are failed contradiction questions, **not not_found questions**. Two correctly supported ambiguous responses: `T04-Q06`, `P06-Q06`.
+- **Source/label inspection (assistant-authored synthetic file pack):** Eight failing contradiction references contain different explicit values for apparently the same claim: handover dates (T01, D01, P03, P09), a supplementary budget (T07), water recycling rate (D04), named person assigned to delivery (D07), and final shelter capacity (D10). P02-Q02 references a named project follow-up contact that appears in PDF source text; D04-Q03 references an approved budget figure that appears in its DOCX source.
+- **Diagnosis boundary:** The `run_eval.py` JSON contains case metrics, not full returned evidence. The raw selected evidence snippets were **not** provided; therefore neither the chosen wrong excerpt in D04-Q03 nor exact P02 PDF extraction/retrieval failure can yet be proven. The existing retriever detects only narrowly similar competing hits, and the percent validator does not cover all date/person/quantity contradictions; this is an architectural risk hypothesis, not a claim that a specific method alone caused each failure. Source-grounded text (127/127) verifies literal provenance, not correctness.
+- **Decision:** No service, retriever, validator, fixture, or expected label changes from aggregates. Next inspect the *actual returned evidence* for two failed found queries and representative conflicts, then write bounded, semantics-preserving regression tests **before** any general conflict-detector patch. Avoid optimizing solely against this public synthetic Development set. New blind/human-labelled real documents, independent Stage 10 mT5 factual gates, and Production criteria remain open; **Production NO-GO**.

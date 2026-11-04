@@ -44,9 +44,10 @@ class DocumentAnswerValidator:
         r"[A-Za-z][A-Za-z0-9/_-]*[0-9][A-Za-z0-9/_-]*"
         r"|(?<!\w)[0-9۰-۹٠-٩]{3,}(?!\w)"
     )
-    _MISSING_MODEL = re.compile(
+    _MISSING_VALUE = re.compile(
         r"نامشخص|مشخص\s+نیست|معلوم\s+نیست"
         r"|(?:اعلام|ثبت|تعیین|ذکر|منتشر)\s+نشده"
+        r"|شماره\s+ندارد|در\s+دسترس\s+نیست"
     )
     _FOCUS_STOP = frozenset({
         "این", "سند", "گزارش", "چند", "چه", "چقدر", "چهار", "سه", "دو",
@@ -82,7 +83,11 @@ class DocumentAnswerValidator:
             rf"{label}\b(?:\s+[^\W\d_]+){{0,4}}\s+"
             rf"(?:به\s+)?(?:شماره|شناسه|کد)\s*[:：-]?\s*{number}"
         )
-        return bool(re.search(after_kind, text) or re.search(before_kind, text))
+        return any(
+            not cls._MISSING_VALUE.search(match.group(0))
+            for pattern in (after_kind, before_kind)
+            for match in re.finditer(pattern, text)
+        )
 
     @classmethod
     def _valid_ip_supported(cls, text: str) -> bool:
@@ -96,13 +101,27 @@ class DocumentAnswerValidator:
         return False
 
     @classmethod
+    def _date_supported(cls, query: str, text: str) -> bool:
+        """Only accept dates in clauses tied to the requested subject."""
+        focus = cls._semantic_terms(query) - {
+            "دقیق", "روزی", "تاریخی", "سال", "ماه", "روز", "زمان", "زمانی",
+        }
+        for clause in re.split(r"[؛\n]|(?<=[.!؟])\s+", text):
+            if (cls._EXPLICIT_DATE.search(clause)
+                    and (not focus or focus & set(
+                        DocumentRetrievalService._normalized_tokens(clause)
+                    ))):
+                return True
+        return False
+
+    @classmethod
     def _model_supported(cls, text: str) -> bool:
         """A model mention requires a code, not an incidental temperature or year."""
         for match in re.finditer(r"مدل|تیپ", text):
             tail = re.split(
                 r"[؛\n]|(?<=[.!؟])\s+", text[match.end():], maxsplit=1
             )[0][:100]
-            if cls._MISSING_MODEL.search(tail):
+            if cls._MISSING_VALUE.search(tail):
                 continue
             for code in cls._MODEL_CODE.finditer(tail):
                 normalized = code.group().translate(DocumentRetrievalService._CHAR_MAP)
@@ -157,7 +176,7 @@ class DocumentAnswerValidator:
             if not (cls._CONDITIONAL_TIME.search(query) and cls._CONDITION_FACT.search(text)):
                 return False
         if (re.search(r"تاریخ|چه\s+روزی|چه\s+تاریخی", query)
-                and not cls._EXPLICIT_DATE.search(text)
+                and not cls._date_supported(query, text)
                 and not (cls._CONDITIONAL_TIME.search(query) and cls._CONDITION_FACT.search(text))):
             return False
         if re.search(r"(?:نرخ|چند)\s*درصد|چند\s*درصد|درصد\s+بود", query):

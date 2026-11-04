@@ -181,6 +181,14 @@ def test_plain_paragraph_heading_supports_enumerated_answer_without_leaking():
         "نرخ رشد فروش در مهر ۱۴۰۴ چند درصد بود؟",
         "نرخ رشد فروش در مهر ۱۴۰۴ اعلام نشد؛ نرخ ریزش مشتری در همان مهر ۱۴۰۴ برابر ۳ درصد بود.",
     ),
+    (
+        "تاریخ جلسه بعدی چه بود؟",
+        "تاریخ جلسه بعدی اعلام نشده است؛ نمایشگاه در ۱۴ آبان ۱۴۰۵ افتتاح می‌شود.",
+    ),
+    (
+        "شماره قرارداد خرید تجهیزات چه بود؟",
+        "شماره قرارداد مشخص نیست و جلسه ۷۶۲۳ ثبت شد.",
+    ),
 ])
 def test_unrelated_or_unverified_slots_do_not_create_answers(question, source):
     result = _ask(source, question)

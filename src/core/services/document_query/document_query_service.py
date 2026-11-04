@@ -219,7 +219,9 @@ class DocumentQueryService:
                     continue
                 excerpts = (self._source_neighbors(hit, result.source_segments)
                             if self._MULTIPART.search(query) else (hit.segment,))
-                if not DocumentAnswerValidator.supports(query, excerpts):
+                if not DocumentAnswerValidator.supports(
+                    query, excerpts, heading_terms=hit.heading_terms
+                ):
                     continue
                 contradictions = DocumentAnswerValidator.conflicting_percent_evidence(
                     query, excerpts, result.source_segments

@@ -215,7 +215,7 @@ Examine Q01/Q03/Q04/Q11/Q15/Q16/Q17/Q18/Q21 first, then audit all questions (inc
 
 The patch introduces a small, model-free `DocumentAnswerValidator` that distinguishes mere topical overlap from evidence of the requested answer type. Unsupported contract identifiers, equipment models, supplier names, and IP addresses are rejected even if nearby amounts or dates exist. Conditional-time queries may be supported by an explicit "only after / subject to" condition rather than a calendar date. If a question requests an enumerated answer, an introduction alone is not enough evidence. Ambiguous competing rates of the *same* metric within one period are reported with the two source quotations. Different metrics and periods are not assumed contradictory. Context gathering for multipart DOCX questions is bounded within the same styled section, with unchanged 1200-character answer limit. No user answer keys or expected values enter source code, and the REST DTO is unchanged.
 
-**Assistant isolated pre-commit evidence:** 21/21 synthetic regression assertions passed; stand-in extractor replay of the newly authored five documents matched 20/4/1 expected statuses, and the prior 25-question set returned all 25 `found`. The semantic score on unreviewed future documents is **unknown**; no guarantee of complete semantic answer validation. No official full checkout tests, new Docker E2E, Stage10 quality signoff, CI or independent human scoring have yet been performed.
+**Assistant isolated pre-commit evidence:** 22/22 synthetic regression assertions passed; stand-in extractor replay of the newly authored five documents matched 20/4/1 expected statuses, and the prior 25-question set returned all 25 `found`. The semantic score on unreviewed future documents is **unknown**; no guarantee of complete semantic answer validation. No official full checkout tests, new Docker E2E, Stage10 quality signoff, CI or independent human scoring have yet been performed.
 
 ### Required Windows PowerShell validation
 
@@ -238,3 +238,5 @@ curl.exe -sS http://127.0.0.1:8008/api/v1/health
 ```
 
 The old containers and responses must remain intact for comparison. Human review must check *both* statuses and all requested atomic facts, not just number of `found`. Hold the original Production gate until model-specific factual quality, truly independent evaluation, and security/operational release criteria pass.
+
+**Plain-heading regression:** The validator also accepts relevance terms attached by the existing retriever to ordinary DOCX section headings, without copying heading content into the answer. The added focused test passed in the assistant stand-in harness (22/22 total targeted assertions).

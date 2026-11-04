@@ -52,12 +52,12 @@ class DocumentAnswerValidator:
         }
 
     @classmethod
-    def supports(cls, query: str, segments: tuple) -> bool:
+    def supports(cls, query: str, segments: tuple, *, heading_terms: tuple[str, ...] = ()) -> bool:
         """Abstain if quoted text has no support for the requested answer slot."""
         text = "\n".join(segment.text for segment in segments)
         terms = cls._semantic_terms(query)
         contextual_text = text + " " + (segments[0].source_location.section or "")
-        source_terms = set(DocumentRetrievalService._normalized_tokens(contextual_text))
+        source_terms = set(DocumentRetrievalService._normalized_tokens(contextual_text)) | set(heading_terms)
         if terms:
             coverage = len(terms & source_terms) / len(terms)
             minimum = 0.30 if (re.search(r"چرا|چگونه|چه\s+مشکلی", query)

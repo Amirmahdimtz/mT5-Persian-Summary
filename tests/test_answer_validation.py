@@ -132,3 +132,25 @@ def test_focused_summary_contract_unchanged():
     ))
     assert result.status == "found"
     assert result.answer == "\n".join(e.text for e in result.evidence)
+
+
+def test_plain_paragraph_heading_supports_enumerated_answer_without_leaking():
+    """DOCX headings can be plain paragraphs, not only Heading-styled text."""
+    document = Document()
+    document.add_paragraph("[S01] ارزیابی مداخله آموزشی")
+    document.add_paragraph("گروه مداخله با گروه مقایسه ارزیابی شد.")
+    document.add_paragraph("[S02] تهدیدهای اعتبار نتیجه")
+    document.add_paragraph(
+        "سه خطای تحلیلی نتیجه ارزیابی را مخدوش می‌کنند: "
+        "اول سوگیری انتخاب، دوم ریزش نمونه و سوم تغییر معیار."
+    )
+    output = BytesIO()
+    document.save(output)
+    result = asyncio.run(_service().query_file_async(
+        output.getvalue(), "study.docx",
+        "دو تهدید اعتبار ارزیابی مداخله آموزشی چیست؟",
+    ))
+    assert result.status == "found"
+    assert "سوگیری انتخاب" in result.answer and "ریزش نمونه" in result.answer
+    assert "گروه مقایسه" not in result.answer
+    assert result.answer == "\n".join(e.text for e in result.evidence)

@@ -104,3 +104,35 @@ $report.records |
 ```
 
 The JSON output is user-local and has not been committed. The next valid engineering step is to inspect these per-case records and their source evidence, then make *targeted* Answer Validation changes and validate them on a separate newly labelled human-reviewed set, not simply optimize the public fixture.
+
+
+## Engineering remediation following v1 case-level inspection (2026-11-04)
+
+The user provided five failed IDs with expected and actual statuses: **F05** found but one of two atomic answers missing; **F07** supplier-name false positive, **F08** wrong-month sales-rate false positive, **A04** two inconsistent same-period rates in TXT incorrectly returned found, and **N02** ticket price inferred from route-budget/passenger figures. These are source-grounded diagnosis targets, **not** newly measured results. The output from `local_answer_quality_eval_v1.json` must remain intact.
+
+Minimal targeted Development patches to Answer Validation and document-query answer mode now require named supplier evidence rather than missing-value clauses, correct month/year and requested rate measure for percentage answers, explicit price-bearing facts for prices, same-metric conflict checks across TXT paragraphs, and bounded two-year same-metric evidence from separate TXT paragraphs. Prior DOCX/PDF source-neighborhood behavior and REST output remain unchanged. Eleven explicit/negative regression scenarios were added to `tests/test_answer_validation.py`.
+
+**Post-fix real HTTP score: NOT RUN.** The previous 17/22, 4/16, 12/16 and 20/21 denominators are an immutable *before* baseline. Do not report improvement from tests alone or use this published fixture as a sealed human holdout.
+
+From repository root on Windows PowerShell, with Development Uvicorn running on loopback:
+
+```powershell
+git pull --ff-only origin main
+$env:env_type = "development"
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_answer_validation.py tests/test_stage11_retrieval.py tests/test_stage12_document_query.py tests/test_stage13_quality.py tests/test_independent_answer_quality.py
+.\.venv\Scripts\python.exe -m pytest -q
+# If Uvicorn is already serving the old code, stop/restart only that known Development server:
+# .\.venv\Scripts\python.exe -m uvicorn src.host.app:app --host 127.0.0.1 --port 8001
+.\.venv\Scripts\python.exe -m benchmarks.independent_answer_quality --base-url http://127.0.0.1:8001 --output .\local_answer_quality_eval_v2.json
+$results = Get-Content .\local_answer_quality_eval_v2.json -Raw | ConvertFrom-Json
+$results.metrics | Format-List
+$results.records | Where-Object {
+    $_.false_positive -eq $true -or
+    $_.complete_and_correct -eq $false -or
+    $_.abstention_correct -eq $false
+} | Select-Object id, expected_status, actual_status, expected_facts, matched_facts,
+    false_positive, abstention_correct, conflict_evidence_supported | Format-Table -AutoSize
+```
+
+Do not stop unrelated processes or overwrite the original report. Even with perfect new synthetic regression metrics, Production remains **NO-GO** until independent authorized Persian documents, human semantic labels, Stage 10 factual summarization gate and security/release criteria pass.

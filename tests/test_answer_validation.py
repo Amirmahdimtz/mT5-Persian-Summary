@@ -214,3 +214,105 @@ def test_requested_percentage_metric_remains_answerable():
     )
     assert result.status == "found", result
     assert "۲٫۱ درصد" in result.answer
+
+
+@pytest.mark.parametrize("question,source", [
+    (
+        "نام شرکت تأمین‌کننده تجهیزات شرکت باران چیست؟",
+        "نام شرکت تأمین‌کننده تجهیزات شرکت باران هنوز اعلام نشده است. "
+        "بودجه تجهیزات شرکت باران ۴۰۰ میلیون تومان بود.",
+    ),
+    (
+        "نرخ رشد فروش شرکت باران در دی ۱۴۰۴ چند درصد بود؟",
+        "نرخ رشد فروش شرکت باران در آذر ۱۴۰۴ برابر ۱۲ درصد بود. "
+        "نرخ ریزش مشتری شرکت باران در آذر ۱۴۰۴ برابر ۳ درصد بود.",
+    ),
+    (
+        "قیمت بلیت قطار مسیر ساحلی چقدر است؟",
+        "قطار مسیر ساحلی آغاز به کار کرد. "
+        "بودجه ساخت مسیر ساحلی ۲۴۰ میلیارد تومان بود. "
+        "تعداد مسافران مسیر ساحلی ۱۸ هزار نفر است.",
+    ),
+    (
+        "نرخ رشد فروش شرکت باران در دی ۱۴۰۴ چند درصد بود؟",
+        "نرخ ریزش مشتری شرکت باران در دی ۱۴۰۴ برابر ۳ درصد بود.",
+    ),
+])
+def test_scoped_supplier_period_price_and_metric_are_not_inferred(question, source):
+    result = _ask(source, question)
+    assert result.status == "not_found", result
+    assert result.answer is None and result.evidence == ()
+
+
+@pytest.mark.parametrize("question,source,expected", [
+    (
+        "نام شرکت تأمین‌کننده تجهیزات شرکت باران چیست؟",
+        "شرکت سپهر به عنوان تأمین‌کننده تجهیزات شرکت باران معرفی شد.",
+        "شرکت سپهر",
+    ),
+    (
+        "نرخ رشد فروش شرکت باران در دی ۱۴۰۴ چند درصد بود؟",
+        "نرخ رشد فروش شرکت باران در دی ۱۴۰۴ برابر ۱۹ درصد بود.",
+        "۱۹ درصد",
+    ),
+    (
+        "قیمت بلیت قطار مسیر ساحلی چقدر است؟",
+        "قیمت بلیت قطار مسیر ساحلی ۹۰ هزار تومان تعیین شد.",
+        "۹۰ هزار تومان",
+    ),
+])
+def test_scoped_positive_answers_remain_source_exact(question, source, expected):
+    result = _ask(source, question)
+    assert result.status == "found", result
+    assert expected in result.answer
+    assert result.answer == "\n".join(item.text for item in result.evidence)
+
+
+def test_conflicting_percentage_in_separate_txt_paragraphs_is_ambiguous():
+    source = (
+        "در واحد عملیاتی نرخ خرابی تجهیزات در مهر ۱۴۰۴ برابر ۲٫۱ درصد ثبت شد.\n\n"
+        "اما واحد کنترل کیفیت برای همان تجهیزات در همان مهر ۱۴۰۴ نرخ ۲٫۸ درصد ثبت کرد."
+    )
+    result = _ask(source, "نرخ قطعی خرابی تجهیزات در مهر ۱۴۰۴ چند درصد بود؟")
+    assert result.status == "ambiguous", result
+    assert result.answer is None
+    assert len(result.evidence) == 2
+    assert "۲٫۱ درصد" in result.evidence[0].text
+    assert "۲٫۸ درصد" in result.evidence[1].text
+
+
+def test_distinct_percentage_metrics_in_txt_are_not_conflicts():
+    source = (
+        "نرخ رشد فروش شرکت سپهر در مهر ۱۴۰۴ برابر ۲٫۱ درصد بود.\n\n"
+        "اما نرخ ریزش مشتری شرکت سپهر در مهر ۱۴۰۴ برابر ۲٫۸ درصد بود."
+    )
+    result = _ask(source, "نرخ رشد فروش شرکت سپهر در مهر ۱۴۰۴ چند درصد بود؟")
+    assert result.status == "found", result
+    assert "۲٫۱ درصد" in result.answer
+    assert "۲٫۸ درصد" not in result.answer
+
+
+def test_explicit_two_year_revenue_claims_span_separate_txt_paragraphs():
+    source = (
+        "درآمد کل شرکت سپهر در سال مالی ۲۰۲۵ برابر ۹۰ میلیارد تومان بود.\n\n"
+        "درآمد کل شرکت سپهر در سال مالی ۲۰۲۴ برابر ۷۰ میلیارد تومان بود.\n\n"
+        "سود عملیاتی شرکت سپهر در سال مالی ۲۰۲۵ برابر ۱۰ میلیارد تومان بود."
+    )
+    result = _ask(source, "درآمد کل شرکت سپهر در ۲۰۲۵ و ۲۰۲۴ چقدر بود؟")
+    assert result.status == "found", result
+    assert "۲۰۲۵ برابر ۹۰ میلیارد تومان" in result.answer
+    assert "۲۰۲۴ برابر ۷۰ میلیارد تومان" in result.answer
+    assert "سود عملیاتی" not in result.answer
+    assert len(result.answer) <= 1200
+    assert [item.source_location.paragraph for item in result.evidence] == [1, 2]
+    assert result.answer == "\n".join(item.text for item in result.evidence)
+
+
+def test_two_year_revenue_query_refuses_when_one_year_missing():
+    source = (
+        "درآمد کل شرکت سپهر در سال مالی ۲۰۲۵ برابر ۹۰ میلیارد تومان بود.\n\n"
+        "سود عملیاتی شرکت سپهر در سال مالی ۲۰۲۴ برابر ۱۰ میلیارد تومان بود."
+    )
+    result = _ask(source, "درآمد کل شرکت سپهر در ۲۰۲۵ و ۲۰۲۴ چقدر بود؟")
+    assert result.status == "not_found", result
+    assert result.answer is None and result.evidence == ()

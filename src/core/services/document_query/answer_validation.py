@@ -33,6 +33,18 @@ class DocumentAnswerValidator:
     _CONDITIONAL_TIME = re.compile(r"چه\s+زمانی.*(?:اجازه|ترخیص|مجاز|امکان)|چه\s+شرطی")
     _CONDITION_FACT = re.compile(r"(?:پس\s+از|در\s+صورت|مشروط\s+به|تنها\s+اگر|فقط\s+پس\s+از)")
     _PERCENT = re.compile(r"([0-9۰-۹٠-٩]+(?:[٫.][0-9۰-۹٠-٩]+)?)\s*(?:درصد|[%٪])")
+    _MONTH_YEAR = re.compile(
+        r"(فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)"
+        r"\s+([0-9۰-۹٠-٩]{4})"
+    )
+    _SUPPLIER = re.compile(r"(?:تأمین|تامین)[\u200c -]*کننده")
+    _RATE_MEASURES = frozenset({
+        "رشد", "فروش", "ریزش", "خرابی", "خطا", "تورم", "بازده",
+        "سود", "درآمد", "پژوهش", "آموزش", "کسری", "کاهش",
+        "افزایش", "تولید", "تاخیر", "تأخیر",
+    })
+    _PRICE_QUERY = re.compile(r"قیمت|بها(?:ی)?|تعرفه")
+    _PRICE_CLAIM = re.compile(r"قیمت|بها(?:ی)?|هزینه|تعرفه|نرخ")
     _NUMERIC = re.compile(r"[0-9۰-۹٠-٩][0-9۰-۹٠-٩٬,٫.]*")
     # Month names alone cannot prove a requested calendar date.
     _EXPLICIT_DATE = re.compile(
@@ -133,6 +145,41 @@ class DocumentAnswerValidator:
         return False
 
     @classmethod
+    def _company_name_supported(cls, query: str, text: str) -> bool:
+        """A document owner's company is not proof of a missing supplier name."""
+        supplier_query = bool(cls._SUPPLIER.search(query))
+        for clause in re.split(r"[؛\n]|(?<=[.!؟])\s+", text):
+            if cls._MISSING_VALUE.search(clause):
+                continue
+            if supplier_query:
+                if not cls._SUPPLIER.search(clause):
+                    continue
+                if re.search(
+                    r"(?:تأمین|تامین)[\u200c -]*کننده(?:\s+\S+){0,3}\s+ندارد",
+                    clause,
+                ):
+                    continue
+            if cls._COMPANY_NAME_FACT.search(clause):
+                return True
+        return False
+
+    @classmethod
+    def _price_supported(cls, query: str, text: str) -> bool:
+        """Do not substitute a project's budget for an asked-for price or fare."""
+        requested = cls._semantic_terms(query) - {
+            "قیمت", "بها", "بهای", "تعرفه", "نرخ", "هزینه",
+        }
+        for clause in re.split(r"[؛\n]|(?<=[.!؟])\s+", text):
+            if (cls._PRICE_CLAIM.search(clause)
+                    and cls._NUMERIC.search(clause)
+                    and not cls._MISSING_VALUE.search(clause)
+                    and (not requested or requested & set(
+                        DocumentRetrievalService._normalized_tokens(clause)
+                    ))):
+                return True
+        return False
+
+    @classmethod
     def _percent_supported(cls, query: str, text: str) -> bool:
         """Bind a percentage to the queried metric within its source clause."""
         focus = cls._semantic_terms(query) - {
@@ -143,10 +190,27 @@ class DocumentAnswerValidator:
             "آوریل", "مه", "ژوئن", "ژوئیه", "اوت", "سپتامبر",
             "اکتبر", "نوامبر", "دسامبر",
         }
+        requested_periods = {
+            (month, year.translate(DocumentRetrievalService._CHAR_MAP))
+            for month, year in cls._MONTH_YEAR.findall(query)
+        }
         for clause in re.split(r"[؛\n]|(?<=[.!؟])\s+", text):
             if not cls._PERCENT.search(clause):
                 continue
-            if not focus or focus & set(DocumentRetrievalService._normalized_tokens(clause)):
+            clause_periods = {
+                (month, year.translate(DocumentRetrievalService._CHAR_MAP))
+                for month, year in cls._MONTH_YEAR.findall(clause)
+            }
+            if requested_periods and not requested_periods.issubset(clause_periods):
+                continue
+            clause_terms = set(DocumentRetrievalService._normalized_tokens(clause))
+            measures = (set(DocumentRetrievalService._normalized_tokens(query))
+                        & cls._RATE_MEASURES)
+            if measures and not measures.issubset(clause_terms):
+                continue
+            if cls._MISSING_VALUE.search(clause):
+                continue
+            if not focus or focus & clause_terms:
                 return True
         return False
 
@@ -170,7 +234,9 @@ class DocumentAnswerValidator:
             return False
         if cls._MODEL_QUESTION.search(query) and not cls._model_supported(text):
             return False
-        if cls._COMPANY_NAME_QUESTION.search(query) and not cls._COMPANY_NAME_FACT.search(text):
+        if cls._COMPANY_NAME_QUESTION.search(query) and not cls._company_name_supported(query, text):
+            return False
+        if cls._PRICE_QUERY.search(query) and not cls._price_supported(query, text):
             return False
         if cls._DATE_INTENT.search(query) and not cls._DATE_FACT.search(text):
             if not (cls._CONDITIONAL_TIME.search(query) and cls._CONDITION_FACT.search(text)):
@@ -227,7 +293,7 @@ class DocumentAnswerValidator:
                 or not chosen):
             return ()
         anchor = next((s for s in chosen if cls._PERCENT.search(s.text)), None)
-        if anchor is None or not anchor.source_location.section:
+        if anchor is None:
             return ()
         anchor_values = {
             m.group(1).translate(DocumentRetrievalService._CHAR_MAP).replace("٫", ".")
@@ -243,8 +309,17 @@ class DocumentAnswerValidator:
             DocumentRetrievalService._normalized_tokens(anchor.text)
         )
         for segment in source:
-            if (segment == anchor
-                    or segment.source_location.section != anchor.source_location.section):
+            if segment == anchor:
+                continue
+            anchor_location, location = anchor.source_location, segment.source_location
+            if anchor_location.document_type != location.document_type:
+                continue
+            if (anchor_location.document_type == "docx"
+                    and (not anchor_location.section
+                         or anchor_location.section != location.section)):
+                continue
+            if (anchor_location.document_type == "pdf"
+                    and anchor_location.page != location.page):
                 continue
             values = {
                 m.group(1).translate(DocumentRetrievalService._CHAR_MAP).replace("٫", ".")

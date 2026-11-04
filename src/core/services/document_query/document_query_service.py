@@ -170,6 +170,62 @@ class DocumentQueryService:
             used += length
         return tuple(chosen) if top.segment in chosen else (top.segment,)
 
+    @classmethod
+    def _cross_paragraph_years(cls, query: str, segments: tuple,
+                               anchor, excerpts: tuple) -> tuple | None:
+        """Join explicit year-scoped claims only for one requested TXT metric.
+
+        Return None when the current bounded excerpts already cover the years
+        or when this is not a supported two-year TXT question.
+        """
+        if anchor.source_location.document_type != "txt":
+            return None
+        normalized_query = DocumentRetrievalService._normalized_tokens(query)
+        years = tuple(dict.fromkeys(
+            token for token in normalized_query
+            if token.isdecimal() and len(token) == 4
+            and (1300 <= int(token) <= 1499 or 1900 <= int(token) <= 2099)
+        ))
+        if len(years) < 2:
+            return None
+        existing = set(DocumentRetrievalService._normalized_tokens(
+            "\n".join(seg.text for seg in excerpts)
+        ))
+        if set(years).issubset(existing):
+            return None
+        metrics = set(normalized_query) & {
+            "درآمد", "سود", "بودجه", "هزینه", "فروش", "رشد", "تولید",
+            "تعداد", "قیمت", "تورم", "نرخ", "سهم",
+        }
+        if len(metrics) != 1:
+            return None
+        metric = next(iter(metrics))
+        context = DocumentAnswerValidator._semantic_terms(query) - metrics - {
+            "کل", "مالی", "های", "سالها", "سالهای",
+        }
+        selected = []
+        for year in years:
+            candidates = []
+            for segment in segments:
+                terms = set(DocumentRetrievalService._normalized_tokens(segment.text))
+                if (segment.source_location.document_type != "txt"
+                        or year not in terms or metric not in terms):
+                    continue
+                if context and len(context & terms) < min(2, len(context)):
+                    continue
+                candidates.append(segment)
+            if not candidates:
+                return ()
+            chosen = min(candidates, key=lambda seg: seg.document_order)
+            if chosen not in selected:
+                selected.append(chosen)
+        selected.sort(key=lambda seg: seg.document_order)
+        if (len(selected) > cls.MAX_ANSWER_EXCERPTS
+                or sum(len(seg.text) for seg in selected) + len(selected) - 1
+                > cls.MAX_ANSWER_CHARACTERS):
+            return ()
+        return tuple(selected)
+
     @staticmethod
     def _is_section_header(text: str) -> bool:
         return bool(re.search(
@@ -219,6 +275,14 @@ class DocumentQueryService:
                     continue
                 excerpts = (self._source_neighbors(hit, result.source_segments)
                             if self._MULTIPART.search(query) else (hit.segment,))
+                if self._MULTIPART.search(query):
+                    year_excerpts = self._cross_paragraph_years(
+                        query, result.source_segments, hit.segment, excerpts
+                    )
+                    if year_excerpts is not None:
+                        if not year_excerpts:
+                            continue
+                        excerpts = year_excerpts
                 if not DocumentAnswerValidator.supports(
                     query, excerpts, heading_terms=hit.heading_terms
                 ):

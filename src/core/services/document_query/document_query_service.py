@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from src.core.services.summarization.document_extraction_service import SourceLocation
+from src.core.services.document_query.answer_validation import DocumentAnswerValidator
 from src.core.services.summarization.document_retrieval_service import (
     DocumentRetrievalService,
     EvidenceHit,
@@ -54,14 +55,10 @@ class DocumentQueryService:
     _QUESTION_FILLERS = frozenset({
         "کسی", "زمانی", "چطور", "چگونه", "چقدر", "چیست", "هست", "کی",
     })
-    _DATE_INTENT = re.compile(r"تاریخ|زمان|روز|ماه|چه\s+وقت|کی\b")
+    _DATE_INTENT = DocumentAnswerValidator._DATE_INTENT
     _PERSON_INTENT = re.compile(r"چه\s+کسی|مسئول|نام\s+(?:فرد|شخص)|به\s+عهده")
     _AMOUNT_INTENT = re.compile(r"چقدر|چند\b|مبلغ|بودجه|تعداد|هزینه")
-    _DATE_FACT = re.compile(
-        r"(?:[0-9۰-۹٠-٩]{1,4}\s+(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند|ژانویه|فوریه|مارس|آوریل|مه|ژوئن|ژوئیه|اوت|سپتامبر|اکتبر|نوامبر|دسامبر))"
-        r"|(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند|ژانویه|فوریه|مارس|آوریل|مه|ژوئن|ژوئیه|اوت|سپتامبر|اکتبر|نوامبر|دسامبر)"
-        r"|(?:[0-9۰-۹٠-٩]{4}[-/][0-9۰-۹٠-٩]{1,2}[-/][0-9۰-۹٠-٩]{1,2})"
-    )
+    _DATE_FACT = DocumentAnswerValidator._DATE_FACT
     _PERSON_FACT = re.compile(r"(?:آقای|خانم)\s+[\u0600-\u06ff]+")
     _AMOUNT_FACT = re.compile(r"[0-9۰-۹٠-٩]|\b(?:یک|دو|سه|چهار|پنج|شش|هفت|هشت|نه|ده)\b")
     _MULTIPART = re.compile(r"(?:^|\s)(?:دو|سه|چهار)(?:\s|$)|\sو\s")
@@ -92,10 +89,13 @@ class DocumentQueryService:
         if not terms:
             return False
         covered = len(set(terms).intersection(hit.matched_terms + hit.heading_terms))
-        if covered < DocumentRetrievalService._required_matches(len(terms)):
+        if (covered < DocumentRetrievalService._required_matches(len(terms))
+                and not (DocumentAnswerValidator._CONDITIONAL_TIME.search(query)
+                         and covered >= 1)):
             return False
         source = hit.segment.text
-        if cls._DATE_INTENT.search(query) and not cls._DATE_FACT.search(source):
+        if (cls._DATE_INTENT.search(query) and not cls._DATE_FACT.search(source)
+                and not DocumentAnswerValidator._CONDITIONAL_TIME.search(query)):
             return False
         if cls._PERSON_INTENT.search(query) and not cls._PERSON_FACT.search(source):
             return False
@@ -117,12 +117,23 @@ class DocumentQueryService:
             return (top.segment,)
         loc = top.segment.source_location
         if loc.paragraph is not None:
-            candidates = [
-                seg for seg in segments
-                if (seg.source_location.document_type == loc.document_type
-                    and seg.source_location.paragraph == loc.paragraph
-                    and seg.source_location.table == loc.table)
-            ]
+            # A styled DOCX section can contain a multi-paragraph answer.
+            # Never cross into another section or include a table accidentally.
+            if loc.document_type == "docx" and loc.section:
+                candidates = [
+                    seg for seg in segments
+                    if (seg.source_location.document_type == "docx"
+                        and seg.source_location.section == loc.section
+                        and seg.source_location.paragraph is not None
+                        and abs(seg.source_location.paragraph - loc.paragraph) <= 6)
+                ]
+            else:
+                candidates = [
+                    seg for seg in segments
+                    if (seg.source_location.document_type == loc.document_type
+                        and seg.source_location.paragraph == loc.paragraph
+                        and seg.source_location.table == loc.table)
+                ]
         elif loc.table is not None:
             candidates = [
                 seg for seg in segments
@@ -201,18 +212,33 @@ class DocumentQueryService:
             return DocumentQueryResult("not_found", mode, query, None, ())
 
         if mode == "answer":
-            top = supported[0]
-            if len(top.segment.text) > self.MAX_ANSWER_CHARACTERS:
-                return DocumentQueryResult("not_found", mode, query, None, ())
-            chosen = (self._source_neighbors(top, result.source_segments)
-                      if self._MULTIPART.search(query) else (top.segment,))
-            return DocumentQueryResult(
-                "found", mode, query,
-                "\n".join(segment.text for segment in chosen),
-                tuple(SourceEvidence(
-                    segment.text, segment.source_location, segment.document_order
-                ) for segment in chosen),
-            )
+            # Retrieval identifies candidates; validation decides answerability.
+            # Inspect up to the retriever's bounded eight ranked candidates.
+            for hit in supported:
+                if len(hit.segment.text) > self.MAX_ANSWER_CHARACTERS:
+                    continue
+                excerpts = (self._source_neighbors(hit, result.source_segments)
+                            if self._MULTIPART.search(query) else (hit.segment,))
+                if not DocumentAnswerValidator.supports(query, excerpts):
+                    continue
+                contradictions = DocumentAnswerValidator.conflicting_percent_evidence(
+                    query, excerpts, result.source_segments
+                )
+                if contradictions:
+                    return DocumentQueryResult(
+                        "ambiguous", mode, query, None,
+                        tuple(SourceEvidence(
+                            seg.text, seg.source_location, seg.document_order
+                        ) for seg in contradictions),
+                    )
+                return DocumentQueryResult(
+                    "found", mode, query,
+                    "\n".join(seg.text for seg in excerpts),
+                    tuple(SourceEvidence(
+                        seg.text, seg.source_location, seg.document_order
+                    ) for seg in excerpts),
+                )
+            return DocumentQueryResult("not_found", mode, query, None, ())
 
         budget = self._SUMMARY_BUDGETS[summary_length or "medium"]
         selected: list[EvidenceHit] = []

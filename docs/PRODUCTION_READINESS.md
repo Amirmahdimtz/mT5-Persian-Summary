@@ -208,3 +208,33 @@ curl.exe -sS http://127.0.0.1:8006/api/v1/health
 ```
 
 Examine Q01/Q03/Q04/Q11/Q15/Q16/Q17/Q18/Q21 first, then audit all questions (including any newly found false positives, unsupported answers, source location and date/order fidelity). Do not overwrite `responses_v1.json` or `responses_v2.json`. Do not stop/remove the previously verified containers by default. Production remains **NO_GO** due to original Stage 10 factual quality gate, independent review and deployment/security prerequisites.
+
+## H. Answer validation and abstention hardening (2026-11-04)
+
+**Status:** Development patch only — **PRODUCTION NO-GO**. User-local round-3 engineering tests passed 521/521, but a newly written synthetic five-document/25-question challenge showed repeated *unsupported* "found" and missed multi-paragraph facts. The new synthetic set was consulted while diagnosing this round, so its future results count as **regression**, not independent blind validation.
+
+The patch introduces a small, model-free `DocumentAnswerValidator` that distinguishes mere topical overlap from evidence of the requested answer type. Unsupported contract identifiers, equipment models, supplier names, and IP addresses are rejected even if nearby amounts or dates exist. Conditional-time queries may be supported by an explicit "only after / subject to" condition rather than a calendar date. If a question requests an enumerated answer, an introduction alone is not enough evidence. Ambiguous competing rates of the *same* metric within one period are reported with the two source quotations. Different metrics and periods are not assumed contradictory. Context gathering for multipart DOCX questions is bounded within the same styled section, with unchanged 1200-character answer limit. No user answer keys or expected values enter source code, and the REST DTO is unchanged.
+
+**Assistant isolated pre-commit evidence:** 21/21 synthetic regression assertions passed; stand-in extractor replay of the newly authored five documents matched 20/4/1 expected statuses, and the prior 25-question set returned all 25 `found`. The semantic score on unreviewed future documents is **unknown**; no guarantee of complete semantic answer validation. No official full checkout tests, new Docker E2E, Stage10 quality signoff, CI or independent human scoring have yet been performed.
+
+### Required Windows PowerShell validation
+
+```powershell
+git pull --ff-only origin main
+git rev-parse HEAD
+$env:env_type = "development"
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_answer_validation.py tests/test_stage11_retrieval.py tests/test_stage12_document_query.py tests/test_stage13_quality.py
+.\.venv\Scripts\python.exe -m pytest -q
+docker build --progress=plain -t mt5-persian-summary:answer-validation-v4 .
+docker ps -a --filter "name=mt5-answer-validation-v4"
+Get-NetTCPConnection -State Listen -LocalPort 8008 -ErrorAction SilentlyContinue
+# Only with unused port and name:
+docker run -d --name mt5-answer-validation-v4 --init --memory 8g --cpus 2 --pids-limit 256 --security-opt no-new-privileges -p 127.0.0.1:8008:8000 -v mt5_hf_cache:/home/app/.cache/huggingface -e env_type=production mt5-persian-summary:answer-validation-v4
+curl.exe -sS http://127.0.0.1:8008/api/v1/health
+.\.venv\Scripts\python.exe .\local_production_qa25\run_persian_qa25.py qa --archive .\local_production_qa25\final_blind_persian_5docs_25q.zip --questions .\local_production_qa25\questions_final_only.txt --base-url http://127.0.0.1:8008 --output .\local_production_qa25\responses_final_v4.json
+.\.venv\Scripts\python.exe .\local_production_qa25\run_persian_qa25.py review --results .\local_production_qa25\responses_final_v4.json --answer-key .\local_production_qa25\answer_key_final_25.json --output .\local_production_qa25\review_final_v4.csv
+```
+
+The old containers and responses must remain intact for comparison. Human review must check *both* statuses and all requested atomic facts, not just number of `found`. Hold the original Production gate until model-specific factual quality, truly independent evaluation, and security/operational release criteria pass.

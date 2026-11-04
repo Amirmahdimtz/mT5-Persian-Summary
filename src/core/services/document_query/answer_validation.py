@@ -7,6 +7,7 @@ answer key. It may abstain when the requested fact cannot be verified.
 from __future__ import annotations
 
 import re
+from ipaddress import ip_address
 
 from src.core.services.summarization.document_retrieval_service import DocumentRetrievalService
 
@@ -23,7 +24,7 @@ class DocumentAnswerValidator:
     # Check the requested slot, not mere topical similarity or unrelated digits.
     _IP_QUESTION = re.compile(r"(?:آدرس|نشانی)\s*(?:IP|آی\s*پی)|\bIP\b", re.I)
     _IP_FACT = re.compile(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b|\b(?:[a-f0-9]{1,4}:){2,}[a-f0-9:]+\b", re.I)
-    _IDENTIFIER_QUESTION = re.compile(r"(?:شماره|شناسه|کد)\s+(?![0-9۰-۹])[^\W\d_]+")
+    _IDENTIFIER_QUESTION = re.compile(r"(?:شماره|شناسه|کد)\s+([^\W\d_]+)")
     _IDENTIFIER_FACT = re.compile(r"(?:شماره|شناسه|کد)\s*(?:[\w\u0600-\u06ff]{1,20}\s+){0,3}[:：-]?\s*[0-9۰-۹][\w\-/]*")
     _MODEL_QUESTION = re.compile(r"(?:مدل|تیپ)\s+(?:\S+)")
     _MODEL_FACT = re.compile(r"(?:مدل|تیپ)\s*[:：]?\s*[\w\-/]{2,}")
@@ -33,6 +34,20 @@ class DocumentAnswerValidator:
     _CONDITION_FACT = re.compile(r"(?:پس\s+از|در\s+صورت|مشروط\s+به|تنها\s+اگر|فقط\s+پس\s+از)")
     _PERCENT = re.compile(r"([0-9۰-۹٠-٩]+(?:[٫.][0-9۰-۹٠-٩]+)?)\s*(?:درصد|[%٪])")
     _NUMERIC = re.compile(r"[0-9۰-۹٠-٩][0-9۰-۹٠-٩٬,٫.]*")
+    # Month names alone cannot prove a requested calendar date.
+    _EXPLICIT_DATE = re.compile(
+        r"(?:[0-9۰-۹٠-٩]{1,2}\s+(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند|ژانویه|فوریه|مارس|آوریل|مه|ژوئن|ژوئیه|اوت|سپتامبر|اکتبر|نوامبر|دسامبر))"
+        r"|(?:[0-9۰-۹٠-٩]{4}[-/][0-9۰-۹٠-٩]{1,2}[-/][0-9۰-۹٠-٩]{1,2})"
+        r"|(?:سال(?:\s+مالی)?\s+[0-9۰-۹٠-٩]{4})"
+    )
+    _MODEL_CODE = re.compile(
+        r"[A-Za-z][A-Za-z0-9/_-]*[0-9][A-Za-z0-9/_-]*"
+        r"|(?<!\w)[0-9۰-۹٠-٩]{3,}(?!\w)"
+    )
+    _MISSING_MODEL = re.compile(
+        r"نامشخص|مشخص\s+نیست|معلوم\s+نیست"
+        r"|(?:اعلام|ثبت|تعیین|ذکر|منتشر)\s+نشده"
+    )
     _FOCUS_STOP = frozenset({
         "این", "سند", "گزارش", "چند", "چه", "چقدر", "چهار", "سه", "دو",
         "بود", "در", "از", "با", "به", "که", "برای", "بر", "شود",
@@ -52,6 +67,66 @@ class DocumentAnswerValidator:
         }
 
     @classmethod
+    def _identifier_supported(cls, query: str, text: str) -> bool:
+        """Require the requested identifier kind, not an unrelated nearby code."""
+        requested = cls._IDENTIFIER_QUESTION.search(query)
+        if requested is None:
+            return True
+        label = re.escape(requested.group(1))
+        number = r"[0-9۰-۹٠-٩][\w/-]*"
+        after_kind = (
+            rf"(?:شماره|شناسه|کد)\s+{label}\b"
+            rf"(?:\s+[^\W\d_]+){{0,4}}\s*[:：-]?\s*{number}"
+        )
+        before_kind = (
+            rf"{label}\b(?:\s+[^\W\d_]+){{0,4}}\s+"
+            rf"(?:به\s+)?(?:شماره|شناسه|کد)\s*[:：-]?\s*{number}"
+        )
+        return bool(re.search(after_kind, text) or re.search(before_kind, text))
+
+    @classmethod
+    def _valid_ip_supported(cls, text: str) -> bool:
+        """Reject syntactically plausible but invalid IPv4/IPv6 literals."""
+        for candidate in cls._IP_FACT.finditer(text):
+            try:
+                ip_address(candidate.group())
+            except ValueError:
+                continue
+            return True
+        return False
+
+    @classmethod
+    def _model_supported(cls, text: str) -> bool:
+        """A model mention requires a code, not an incidental temperature or year."""
+        for match in re.finditer(r"مدل|تیپ", text):
+            tail = re.split(
+                r"[؛\n]|(?<=[.!؟])\s+", text[match.end():], maxsplit=1
+            )[0][:100]
+            if cls._MISSING_MODEL.search(tail):
+                continue
+            for code in cls._MODEL_CODE.finditer(tail):
+                normalized = code.group().translate(DocumentRetrievalService._CHAR_MAP)
+                if (normalized.isdecimal() and len(normalized) == 4
+                        and (1300 <= int(normalized) <= 1499
+                             or 1900 <= int(normalized) <= 2099)):
+                    continue
+                return True
+        return False
+
+    @classmethod
+    def _percent_supported(cls, query: str, text: str) -> bool:
+        """Bind a percentage to the queried metric within its source clause."""
+        focus = cls._semantic_terms(query) - {
+            "نرخ", "درصد", "سهم", "میزان", "قطعی", "واقع", "اصلی",
+        }
+        for clause in re.split(r"[؛\n]|(?<=[.!؟])\s+", text):
+            if not cls._PERCENT.search(clause):
+                continue
+            if not focus or focus & set(DocumentRetrievalService._normalized_tokens(clause)):
+                return True
+        return False
+
+    @classmethod
     def supports(cls, query: str, segments: tuple, *, heading_terms: tuple[str, ...] = ()) -> bool:
         """Abstain if quoted text has no support for the requested answer slot."""
         text = "\n".join(segment.text for segment in segments)
@@ -65,19 +140,23 @@ class DocumentAnswerValidator:
                                or re.search(r"(?:دو|سه|چهار)\s+(?:تهدید|عامل|دلیل)", query)) else 0.50
             if coverage < minimum:
                 return False
-        if cls._IP_QUESTION.search(query) and not cls._IP_FACT.search(text):
+        if cls._IP_QUESTION.search(query) and not cls._valid_ip_supported(text):
             return False
-        if cls._IDENTIFIER_QUESTION.search(query) and not cls._IDENTIFIER_FACT.search(text):
+        if not cls._identifier_supported(query, text):
             return False
-        if cls._MODEL_QUESTION.search(query) and not cls._MODEL_FACT.search(text):
+        if cls._MODEL_QUESTION.search(query) and not cls._model_supported(text):
             return False
         if cls._COMPANY_NAME_QUESTION.search(query) and not cls._COMPANY_NAME_FACT.search(text):
             return False
         if cls._DATE_INTENT.search(query) and not cls._DATE_FACT.search(text):
             if not (cls._CONDITIONAL_TIME.search(query) and cls._CONDITION_FACT.search(text)):
                 return False
+        if (re.search(r"تاریخ|چه\s+روزی|چه\s+تاریخی", query)
+                and not cls._EXPLICIT_DATE.search(text)
+                and not (cls._CONDITIONAL_TIME.search(query) and cls._CONDITION_FACT.search(text))):
+            return False
         if re.search(r"(?:نرخ|چند)\s*درصد|چند\s*درصد|درصد\s+بود", query):
-            if not cls._PERCENT.search(text):
+            if not cls._percent_supported(query, text):
                 return False
         # Require two numbers when comparing an original *amount* to the final amount.
         if (re.search(r"پیشنهاد|پیش\s*نویس|اولیه", query)

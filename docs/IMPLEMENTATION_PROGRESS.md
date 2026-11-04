@@ -1589,3 +1589,13 @@ python -m pytest -q tests/test_text_chunking_service.py tests/test_long_text_sum
 - **Verification to run:** `pip check`, `compileall`, Stage11/12/13 targeted and full `pytest -q`; build new Docker image on **127.0.0.1:8008** without altering prior test containers or files; run both 25-query sets under new output names; conduct independent question-by-question factual, completeness, false-positive, and conflict review. Confirm Production requirements separately, including Stage10 real mT5 facts, independent human review, and security/release gates. **Commit SHA:** see verified repository commit carrying this entry.
 
 - **Follow-up regression safety:** Plain DOCX section headings that are ordinary paragraphs may contribute only to relevance checks through existing `EvidenceHit.heading_terms`; original source snippets remain the exclusive answer/evidence. Added a targeted regression for this case; assistant isolated smoke now reports 22/22 assertions. This avoids false abstention for unlabeled Heading styles without expanding the output beyond the original section constraints.
+
+
+## Targeted Document Query Answer Validation — 2026-11-04
+
+- Scope: conservative source-exact Answer Validation in the existing Document Query path only. mT5 model, decoding, architecture, retrieval ranking, HTTP contract, and frozen quality datasets are unchanged.
+- Code: src/core/services/document_query/answer_validation.py now binds identifier values to the requested kind, validates IP literals, requires explicit model codes, rejects month-only calendar dates, and associates percentages with queried metrics within source clauses.
+- Regression: tests/test_answer_validation.py adds five negative scenarios plus positive identifier and percentage preservation tests.
+- Dependencies: none (IP parsing uses Python stdlib).
+- Verification: isolated Python preflight of identifier/IP/model rules passed (8/8). Full repository pytest, full benchmark, real-document quality and Production semantic gates **NOT RUN** by assistant in this environment.
+- Known issues: conservative lexical checks can reject implicit/paraphrased correct facts and do not independently prove entailment; a numerical quality increase to 8 or 9 is unverified. Stage 10 Production semantic gate stays unmet.

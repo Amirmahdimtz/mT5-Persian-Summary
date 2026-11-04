@@ -154,3 +154,51 @@ def test_plain_paragraph_heading_supports_enumerated_answer_without_leaking():
     assert "سوگیری انتخاب" in result.answer and "ریزش نمونه" in result.answer
     assert "گروه مقایسه" not in result.answer
     assert result.answer == "\n".join(e.text for e in result.evidence)
+
+
+@pytest.mark.parametrize("question,source", [
+    (
+        "شماره قرارداد خرید تجهیزات چه بود؟",
+        "شماره پرونده خرید تجهیزات ۷۶۲۳ ثبت شد. قرارداد خرید هنوز شماره ندارد.",
+    ),
+    (
+        "مدل دستگاه کنترل دما چه بود؟",
+        "مدل دستگاه کنترل دما نامشخص است؛ دمای آن ۵۰ درجه است.",
+    ),
+    (
+        "آدرس IP درگاه سرویس چیست؟",
+        "آدرس IP درگاه سرویس 999.999.999.999 ثبت شد.",
+    ),
+    (
+        "تاریخ جلسه بعدی چه بود؟",
+        "تاریخ جلسه بعدی در ماه آبان بررسی شد اما روز آن مشخص نیست.",
+    ),
+    (
+        "نرخ رشد فروش چند درصد بود؟",
+        "نرخ رشد فروش اعلام نشد؛ نرخ ریزش مشتری ۳ درصد بود.",
+    ),
+])
+def test_unrelated_or_unverified_slots_do_not_create_answers(question, source):
+    result = _ask(source, question)
+    assert result.status == "not_found", result
+    assert result.answer is None
+    assert result.evidence == ()
+
+
+def test_requested_identifier_can_precede_numeric_reference():
+    result = _ask(
+        "قرارداد خرید تجهیزات به شماره ۷۶۲۳ ثبت شد.",
+        "شماره قرارداد خرید تجهیزات چه بود؟",
+    )
+    assert result.status == "found", result
+    assert "۷۶۲۳" in result.answer
+    assert result.answer == "\n".join(item.text for item in result.evidence)
+
+
+def test_requested_percentage_metric_remains_answerable():
+    result = _ask(
+        "نرخ رشد فروش در مهر ۱۴۰۴ برابر ۲٫۱ درصد بود.",
+        "نرخ رشد فروش در مهر ۱۴۰۴ چند درصد بود؟",
+    )
+    assert result.status == "found", result
+    assert "۲٫۱ درصد" in result.answer

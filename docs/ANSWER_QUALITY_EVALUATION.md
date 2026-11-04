@@ -71,3 +71,36 @@ The report file is never overwritten. For repeated runs supply a distinct output
 ## Release decision
 
 The evaluation instrument is reproducible; quality improvement remains unmeasured until a new run is examined. Before Production, run independent human-labelled Persian documents, review all missing/conflicting facts, validate Stage 10 factual requirements and complete security/operational release gates. Do not tune runtime against this new fixture if you intend to call it blind.
+
+
+## First live 34-question evaluation — user-run Windows (2026-11-04)
+
+**Observed Development result on local Uvicorn `127.0.0.1:8001` after fast-forward to commit `e8d2cb7cfa857be04cb630c4ebfb411eff11f535`:**
+
+- `python -m pytest -q tests/test_independent_answer_quality.py`: **19 passed in 0.93s**.
+- `python -m benchmarks.independent_answer_quality --validate-only`: **34 cases, eight documents** (18 found / 12 not_found / four ambiguous); user-reported fixture SHA-256 `4e6469a940ee196b93688a31cb194333eb5bb5f99b1b9d150fbf8d6417e4fde6`.
+- Live benchmark invoked with `--base-url http://127.0.0.1:8001 --output .\\local_answer_quality_eval_v1.json`: **34 processed / zero invalid responses**; server logs showed 34 HTTP 200 responses. This is the first measured run of the new 34-case fixture.
+
+| Metric | Observed numerator / denominator | Value |
+| --- | ---: | ---: |
+| Answer Correctness | 17 / 22 returned found | **77.27%** |
+| False Positive Rate | 4 / 16 abstention-required | **25.00%** |
+| Abstention Accuracy | 12 / 16 abstention-required | **75.00%** |
+| Answer Completeness | 20 / 21 reference atoms | **95.24%** |
+| Found Question Success | 17 / 18 answerable | **94.44%** |
+
+Observed response statuses: **found=22, not_found=9, ambiguous=3**. The labels include only 18 answerable cases, and four of 16 cases requiring abstention instead returned a found/answer according to the scorer. Among 18 answerable cases, 17 had fully correct source-exact answers and one did not achieve full required-atom coverage. The recorded 20/21 atom coverage must not be interpreted as 20/21 independent documents or a semantic score.
+
+**Unresolved root-cause evidence:** The user supplied aggregate output and HTTP logs, **not the report's per-case records**. Therefore the identities of the four false positives and the one incompletely answered question, and their precise source-level failure modes, are **NOT REVIEWED**. No runtime fix is justified merely from aggregate percentages. The synthetic references are public and cannot serve as an untouched holdout. Independent human-reviewed real-Persian evaluation, Stage 10 mT5 criteria, Docker/release security and Production semantic GO remain open; **Production NO-GO**.
+
+To inspect the failed or incomplete cases in Windows PowerShell without revealing document contents:
+
+```powershell
+$report = Get-Content .\\local_answer_quality_eval_v1.json -Raw | ConvertFrom-Json
+$report.records |
+    Where-Object { $_.false_positive -eq $true -or $_.complete_and_correct -eq $false -or $_.abstention_correct -eq $false } |
+    Select-Object id, expected_status, actual_status, expected_facts, matched_facts, false_positive, abstention_correct, conflict_evidence_supported |
+    Format-Table -AutoSize
+```
+
+The JSON output is user-local and has not been committed. The next valid engineering step is to inspect these per-case records and their source evidence, then make *targeted* Answer Validation changes and validate them on a separate newly labelled human-reviewed set, not simply optimize the public fixture.

@@ -154,3 +154,28 @@ This is the **expected and correct fail-closed result**. The model/memory packag
 3. Perform separately scoped authenticated gateway/rate-limiting, load/long-document resource characterization and software supply-chain security review before any public endpoint or production release.
 
 **New work in this update is documentation-only.** No further Docker build, model call, benchmark, human approval, GHCR publication or deployment was performed by the assistant; the user supplied the test and probe evidence. Current status: **Production Readiness In Progress / NO-GO**, Stage 13 Development **Completed**.
+
+## F. Exploratory real-format Document Query quality regression and follow-up (2026-11-04)
+
+A user executed a blind, local **five-document / 25-question** evaluation against the previously verified `mt5-prod-candidate` image. The baseline `local_production_qa25/responses_v1.json` recorded **25/25 HTTP 200**, **4 `found` / 21 `not_found`**. Qualitative source checking indicated Q12 fully correct, Q03 incomplete, Q08 and Q09 selecting incorrect adjacent numerical snippets; HTTP integrity is not answer correctness. The user-authored documents are legal/public-source *rewrites* and the 25 cases do not establish independent representative Production quality. The private ZIP, answer key and raw review CSV **must remain outside Git**.
+
+**Remediation:** An isolated post-Stage-13 Search fix in `DocumentRetrievalService` and `DocumentQueryService` adds more flexible Persian lexical normalization, corpus-local rare-term scoring, bounded same-paragraph DOCX topic context, amount-versus-percentage relevance and multi-part original-source excerpt selection. No external model/vector index, generative answers, upload validation bypass or API format change. Existing conservative `not_found`/`ambiguous` semantics and original-evidence contracts are retained; correctness on unseen data and realistic PDF RTL extraction still require testing.
+
+**Test claims boundary:** The assistant verified 8 new tests against an isolated local source-class harness and 15/15 frozen Stage 11 Development query matches using a stand-in extractor. Neither is a complete GitHub CI run. The new code has **not** yet been exercised in Docker by the user, nor has `responses_v2.json` been generated. A higher `found` rate is **not** a factual correctness score. The frozen Stage 10 minimum real-project medium coverage **3/6** versus prior **2/6**, independent human review, and public exposure/security release criteria are unchanged. **Production remains NO-GO**.
+
+Use the latest `main` and the already provided `local_production_qa25/run_persian_qa25.py` and input files. Keep the old production candidate container intact. From the repository root in Windows PowerShell:
+
+```powershell
+git pull --ff-only origin main
+.\.venv\Scripts\python.exe -m compileall -q src benchmarks tests
+.\.venv\Scripts\python.exe -m pytest -q tests/test_stage11_retrieval.py tests/test_stage12_document_query.py tests/test_stage13_quality.py
+.\.venv\Scripts\python.exe -m pytest -q
+docker build --progress=plain -t mt5-persian-summary:search-fix .
+# Use a new container name/port; do not remove, rename or overwrite the previous prod candidate:
+docker run -d --name mt5-search-fix --init --memory 8g --cpus 2 --pids-limit 256 --security-opt no-new-privileges -p 127.0.0.1:8005:8000 -v mt5_hf_cache:/home/app/.cache/huggingface -e env_type=production mt5-persian-summary:search-fix
+curl.exe -sS http://127.0.0.1:8005/api/v1/health
+.\.venv\Scripts\python.exe .\local_production_qa25\run_persian_qa25.py qa --archive .\local_production_qa25\persian_5_documents_25_qa.zip --questions .\local_production_qa25\questions_only.txt --base-url http://127.0.0.1:8005 --output .\local_production_qa25\responses_v2.json
+.\.venv\Scripts\python.exe .\local_production_qa25\run_persian_qa25.py review --results .\local_production_qa25\responses_v2.json --answer-key .\local_production_qa25\answer_key_25_questions.json --output .\local_production_qa25\review_v2.csv
+```
+
+If a name/port is already in use, **inspect first** rather than replacing a running container. Review `review_v2.csv` question by question, including no-answer/ambiguous cases, exact source positions, multi-fact coverage and dates/amounts. **Do not** write semantic labels until independently checked; do not alter frozen signoff thresholds or tune on sealed Holdout. Future production consideration requires a genuinely independent dataset and original Stage 10 pass.

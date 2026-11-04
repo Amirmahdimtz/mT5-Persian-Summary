@@ -7,8 +7,10 @@ Document locations come from the extractor, not from text similarity.
 from __future__ import annotations
 
 import asyncio
+import math
 import re
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass
 from typing import Literal
 
@@ -54,10 +56,21 @@ class DocumentRetrievalService:
         "از", "به", "در", "با", "و", "که", "را", "یا", "برای", "چه", "چند",
         "کدام", "است", "بود", "شد", "شده", "میشود", "می", "این", "آن",
         "یک", "آیا", "تا", "روی", "درباره", "مورد", "باشد", "بوده",
+        "چرا", "چگونه", "چطور", "چیست", "هست", "بر", "اساس", "طبق",
+        "نمی", "بدون", "باعث", "کرد", "کند", "کنند", "بودند", "دارد",
+        "دارند", "ها", "های", "هایی", "هم", "نیز", "لزوما", "فقط",
+        "چقدر", "زمانی", "کسی", "چیزی", "وقتی", "اند", "هستند",
     })
     _PERSON = re.compile(r"(?:آقای|خانم)\s+([\u0600-\u06ff]+)")
     _DIGIT = re.compile(r"(?<!\w)[0-9]+(?!\w)")
     _TOKEN = re.compile(r"[^\W_]+", flags=re.UNICODE)
+    _ANSWER_NUMBER_INTENT = re.compile(
+        r"چقدر|مبلغ|تعداد|چند|واحد|موارد|درآمد|سود|نرخ|نسبت|درصد|بیشترین|چه\s+تاریخ"
+        r"|(?:دو|سه|چهار|پنج|شش|هفت)\s+(?:معیار|محور|دلیل|مورد|عامل)"
+    )
+    _PERCENT_INTENT = re.compile(r"نسبت|درصد|سهم|رشد")
+    _PERCENT_FACT = re.compile(r"درصد|[%٪]")
+    _SECTION_HEADING = re.compile(r"^\[[^\]\r\n]{1,24}\]\s+\S")
     _CHAR_MAP = str.maketrans({
         "ي": "ی", "ى": "ی", "ك": "ک", "ة": "ه", "ۀ": "ه",
         "۰": "0", "۱": "1", "۲": "2", "۳": "3", "۴": "4",
@@ -71,13 +84,24 @@ class DocumentRetrievalService:
 
     @classmethod
     def _normalized_tokens(cls, text: str) -> tuple[str, ...]:
-        # Normalization is for matching only. Evidence text stays unchanged.
+        """Normalize matching keys while preserving original source excerpts."""
         normalized = unicodedata.normalize("NFKC", text).translate(cls._CHAR_MAP)
         normalized = normalized.replace("\u200c", " ").replace("\u200d", " ")
         normalized = "".join(
             char for char in normalized if unicodedata.category(char) != "Mn"
         )
-        return tuple(cls._TOKEN.findall(normalized.casefold()))
+        tokens: list[str] = []
+        for token in cls._TOKEN.findall(normalized.casefold()):
+            if len(token) >= 7 and token.endswith("هایی"):
+                token = token[:-4]
+            elif len(token) >= 6 and token.endswith("های"):
+                token = token[:-3]
+            elif len(token) >= 5 and token.endswith("ها"):
+                token = token[:-2]
+            if len(token) >= 6 and token.endswith("ی") and not token.isdecimal():
+                token = token[:-1]
+            tokens.append(token)
+        return tuple(tokens)
 
     @classmethod
     def _query_terms(cls, query: str) -> tuple[str, ...]:
@@ -95,7 +119,42 @@ class DocumentRetrievalService:
 
     @staticmethod
     def _required_matches(query_size: int) -> int:
-        return (query_size * 3 + 4) // 5  # ceil(60% of informative terms)
+        return 1 if query_size == 1 else 2  # paraphrases need flexible literal coverage
+
+    @staticmethod
+    def _context_key(segment: DocumentSegment) -> tuple | None:
+        """Only genuine shared paragraphs/table rows provide ranking context."""
+        loc = segment.source_location
+        if loc.paragraph is not None:
+            return (loc.document_type, "paragraph", loc.paragraph)
+        if loc.table is not None and loc.row is not None:
+            return (loc.document_type, "table_row", loc.table, loc.row)
+        # PDF pages may contain unrelated topics: never group an entire page.
+        return None
+
+    @classmethod
+    def _numeric_score(cls, query: str, query_terms: tuple[str, ...], text: str) -> float:
+        """Prefer requested quantities to nearby, unrelated percentages."""
+        if not cls._ANSWER_NUMBER_INTENT.search(query):
+            return 0.0
+        source_numbers = {x for x in cls._normalized_tokens(text) if x.isdecimal()}
+        question_numbers = {x for x in query_terms if x.isdecimal()}
+        extra_numbers = {
+            x for x in source_numbers - question_numbers
+            if not (len(x) == 4 and (1300 <= int(x) <= 1499 or 1900 <= int(x) <= 2099))
+        }
+        value = 1.3 if extra_numbers else 0.0
+        if re.search(r"(?:دو|سه|چهار|پنج|شش|هفت)\s+(?:معیار|محور|دلیل|مورد|عامل)", query):
+            count_words = {"دو", "سه", "چهار", "پنج", "شش", "هفت"}
+            if count_words.intersection(cls._normalized_tokens(query)).intersection(
+                cls._normalized_tokens(text)
+            ):
+                value += 1.0
+        if len(extra_numbers) >= 2:
+            value += 0.3
+        if cls._PERCENT_FACT.search(text) and not cls._PERCENT_INTENT.search(query):
+            value -= 1.5
+        return value
 
     @classmethod
     def _explicit_facts(cls, value: str) -> tuple[frozenset[str], frozenset[str]]:
@@ -134,18 +193,56 @@ class DocumentRetrievalService:
             # Overlap may repeat characters but cannot grow without bound.
             raise RetrievalInputError("evidence collection exceeds character budget")
 
-        hits: list[EvidenceHit] = []
+        vocabularies: list[set[str]] = []
+        frequencies: Counter[str] = Counter()
+        contexts: dict[tuple, set[str]] = {}
+        section_contexts: dict[int, set[str]] = {}
+        sections: list[int | None] = []
+        active_section: int | None = None
         for segment in segments:
-            haystack = self._normalized_tokens(segment.text)
-            if not haystack:
+            vocabulary = set(self._normalized_tokens(segment.text))
+            vocabularies.append(vocabulary)
+            frequencies.update(vocabulary)
+            key = self._context_key(segment)
+            if key is not None:
+                contexts.setdefault(key, set()).update(vocabulary)
+            # DOCX headings may be plain paragraphs; context is not answer text.
+            if (segment.source_location.document_type == "docx"
+                    and len(segment.text) <= 140
+                    and self._SECTION_HEADING.match(segment.text)):
+                active_section = segment.document_order
+                section_contexts[active_section] = set(vocabulary)
+            sections.append(active_section if segment.source_location.document_type == "docx" else None)
+            if active_section is not None and segment.source_location.document_type == "docx":
+                section_contexts[active_section].update(vocabulary)
+        count = len(segments)
+        weights = {
+            term: math.log1p((count + 1) / (frequencies[term] + 1))
+            for term in terms
+        }
+        total_weight = sum(weights.values())
+        hits: list[EvidenceHit] = []
+        for segment, vocabulary, section in zip(segments, vocabularies, sections):
+            if (not vocabulary or
+                    (segment.source_location.document_type == "docx"
+                     and self._SECTION_HEADING.match(segment.text))):
                 continue
-            vocabulary = set(haystack)
             found = tuple(term for term in terms if term in vocabulary)
-            if len(found) < self._required_matches(len(terms)):
+            key = self._context_key(segment)
+            context = contexts.get(key, vocabulary) if key is not None else vocabulary
+            if section is not None:
+                context = context | section_contexts[section]
+            context_found = tuple(term for term in terms if term in context)
+            if len(context_found) < self._required_matches(len(terms)) or not found:
                 continue
-            coverage = len(found) / len(terms)
-            phrase = " ".join(terms) in " ".join(haystack)
-            score = 5.0 * coverage + 0.25 * len(found) + (2.0 if phrase else 0.0)
+            direct_coverage = sum(weights[t] for t in found) / total_weight
+            context_coverage = sum(weights[t] for t in context_found) / total_weight
+            phrase = " ".join(terms) in " ".join(self._normalized_tokens(segment.text))
+            score = (
+                5.0 * direct_coverage + 3.0 * context_coverage
+                + 0.2 * len(found) + (1.0 if phrase else 0.0)
+                + self._numeric_score(query, terms, segment.text)
+            )
             hits.append(EvidenceHit(segment, score, found))
         hits.sort(key=lambda hit: (-hit.score, hit.segment.document_order))
         if not hits:

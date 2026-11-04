@@ -239,3 +239,89 @@ def test_stage12_http_mapper_rejects_ungrounded_answer():
         _to_response(value)
     assert error.value.status_code == 500
     assert "۹۹" not in str(error.value.detail)
+
+def test_relevance_long_question_prefers_requested_amount():
+    raw = (
+        "افزایش خالص ظرفیت برق در سال ۲۰۲۳ برابر با ۴۷۳ گیگاوات بود. "
+        "این رقم ظرفیت نصب‌شده است و نه انرژی تولیدشده.\n\n"
+        "سهم یک منطقه از افزایش خالص ظرفیت برق سال ۲۰۲۳ حدود ۶۹ درصد اعلام شد."
+    ).encode()
+    result = asyncio.run(_service().query_file_async(
+        raw, "report.txt", "افزایش خالص ظرفیت برق در سال ۲۰۲۳ چقدر بود و واحد آن چیست؟"
+    ))
+    assert result.status == "found"
+    assert "۴۷۳ گیگاوات" in result.answer
+    assert "۶۹ درصد" not in result.answer
+    assert result.answer == "\n".join(e.text for e in result.evidence)
+
+
+def test_relevance_two_part_question_preserves_both_source_excerpts():
+    raw = "محور اول جلسه، آموزش معلمان بود. محور دوم جلسه، تأمین تجهیزات مدارس بود.".encode()
+    result = asyncio.run(_service().query_file_async(raw, "report.txt", "دو محور جلسه چه بودند؟"))
+    assert result.status == "found"
+    assert "آموزش معلمان" in result.answer
+    assert "تأمین تجهیزات مدارس" in result.answer
+    assert len(result.evidence) == 2
+    assert result.answer == "\n".join(e.text for e in result.evidence)
+
+
+def test_relevance_textual_gregorian_date_is_supported():
+    raw = "سال مالی شرکت در ۳۰ ژوئن ۲۰۲۴ پایان یافت.".encode()
+    result = asyncio.run(_service().query_file_async(raw, "report.txt", "سال مالی در چه تاریخی پایان یافت؟"))
+    assert result.status == "found"
+    assert "۳۰ ژوئن ۲۰۲۴" in result.answer
+
+
+def test_relevance_persian_plural_normalization_does_not_change_quote():
+    raw = "درمانگاه‌ها در مناطق کم‌برخوردار افتتاح شدند.".encode()
+    result = asyncio.run(_service().query_file_async(
+        raw, "report.txt", "درمانگاه در کدام مناطق افتتاح شد؟"
+    ))
+    assert result.status == "found"
+    assert "درمانگاه‌ها" in result.answer
+    assert result.evidence[0].text in raw.decode()
+
+
+def test_relevance_no_numeric_answer_abstains_from_nearby_budget():
+    raw = (
+        "قرارداد شرکت آفتاب امضا شد اما مبلغ آن در گزارش ذکر نشده است.\n\n"
+        "بودجه تعمیر تجهیزات آزمایشگاه ۸۰۰ میلیون تومان تعیین شد."
+    ).encode()
+    result = asyncio.run(_service().query_file_async(
+        raw, "report.txt", "مبلغ قرارداد شرکت آفتاب چقدر است؟"
+    ))
+    assert result.status == "not_found"
+    assert result.answer is None and not result.evidence
+
+
+def test_relevance_unrelated_topic_still_abstains():
+    raw = "سود شرکت ۲۰ درصد رشد کرد.".encode()
+    result = asyncio.run(_service().query_file_async(
+        raw, "report.txt", "واکسن کودکان در کدام شهر توزیع شد؟"
+    ))
+    assert result.status == "not_found"
+    assert result.answer is None and not result.evidence
+
+
+def test_relevance_conflicting_dates_remain_ambiguous():
+    raw = "تاریخ جلسه بعدی ۱۴ آبان ۱۴۰۵ است.\n\nتاریخ جلسه بعدی ۱۵ آبان ۱۴۰۵ است.".encode()
+    result = asyncio.run(_service().query_file_async(raw, "report.txt", "تاریخ جلسه بعدی"))
+    assert result.status == "ambiguous"
+    assert result.answer is None
+    assert len(result.evidence) >= 2
+
+
+def test_relevance_focused_summary_remains_bounded_and_source_exact():
+    raw = (
+        "بودجه آموزش معلمان در سال جدید افزایش یافت.\n\n"
+        "بودجه توسعه مراکز درمانی بدون تغییر ماند.\n\n"
+        "آموزش معلمان در پنج استان اجرا می‌شود."
+    ).encode()
+    result = asyncio.run(_service().query_file_async(
+        raw, "report.txt", "آموزش معلمان", mode="focused_summary"
+    ))
+    assert result.status == "found"
+    assert result.answer == "\n".join(e.text for e in result.evidence)
+    assert len(result.answer) <= 680
+    assert "مراکز درمانی" not in result.answer
+

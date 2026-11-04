@@ -58,12 +58,13 @@ class DocumentQueryService:
     _PERSON_INTENT = re.compile(r"چه\s+کسی|مسئول|نام\s+(?:فرد|شخص)|به\s+عهده")
     _AMOUNT_INTENT = re.compile(r"چقدر|چند\b|مبلغ|بودجه|تعداد|هزینه")
     _DATE_FACT = re.compile(
-        r"(?:[0-9۰-۹٠-٩]{1,4}\s+(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند))"
-        r"|(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند)"
+        r"(?:[0-9۰-۹٠-٩]{1,4}\s+(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند|ژانویه|فوریه|مارس|آوریل|مه|ژوئن|ژوئیه|اوت|سپتامبر|اکتبر|نوامبر|دسامبر))"
+        r"|(?:فروردین|اردیبهشت|خرداد|تیر|مرداد|شهریور|مهر|آبان|آذر|دی|بهمن|اسفند|ژانویه|فوریه|مارس|آوریل|مه|ژوئن|ژوئیه|اوت|سپتامبر|اکتبر|نوامبر|دسامبر)"
         r"|(?:[0-9۰-۹٠-٩]{4}[-/][0-9۰-۹٠-٩]{1,2}[-/][0-9۰-۹٠-٩]{1,2})"
     )
     _PERSON_FACT = re.compile(r"(?:آقای|خانم)\s+[\u0600-\u06ff]+")
     _AMOUNT_FACT = re.compile(r"[0-9۰-۹٠-٩]|\b(?:یک|دو|سه|چهار|پنج|شش|هفت|هشت|نه|ده)\b")
+    _MULTIPART = re.compile(r"(?:^|\s)(?:دو|سه|چهار)(?:\s|$)|\sو\s")
 
     def __init__(self, document_retrieval_service: DocumentRetrievalService) -> None:
         self._retriever = document_retrieval_service
@@ -90,7 +91,7 @@ class DocumentQueryService:
         if not terms:
             return False
         covered = len(set(terms).intersection(hit.matched_terms))
-        if covered * 4 < len(terms) * 3:  # at least 75% meaningful coverage
+        if covered < DocumentRetrievalService._required_matches(len(terms)):
             return False
         source = hit.segment.text
         if cls._DATE_INTENT.search(query) and not cls._DATE_FACT.search(source):
@@ -100,6 +101,19 @@ class DocumentQueryService:
         if cls._AMOUNT_INTENT.search(query) and not cls._AMOUNT_FACT.search(source):
             return False
         return True
+
+    @staticmethod
+    def _related_excerpt(top: EvidenceHit, candidate: EvidenceHit) -> bool:
+        """Join only excerpts from the same source location and local context."""
+        a, b = top.segment, candidate.segment
+        x, y = a.source_location, b.source_location
+        if x.document_type != y.document_type:
+            return False
+        if x.paragraph is not None:
+            return x.paragraph == y.paragraph and x.table == y.table
+        if x.table is not None:
+            return x.table == y.table and x.row == y.row
+        return x.page == y.page and abs(a.document_order - b.document_order) <= 2
 
     async def query_file_async(
         self,
@@ -118,7 +132,7 @@ class DocumentQueryService:
             raise DocumentQueryInputError("summary_length must be short, medium or long")
         # Input validation occurs before parsing untrusted document bytes.
         self.validate_query(query)
-        result = await self._retriever.retrieve_async(content, filename, query, top_k=6)
+        result = await self._retriever.retrieve_async(content, filename, query, top_k=8)
         if result.status == "not_found" or not result.evidence:
             return DocumentQueryResult("not_found", mode, query, None, ())
 
@@ -138,11 +152,20 @@ class DocumentQueryService:
             top = supported[0]
             if len(top.segment.text) > self.MAX_ANSWER_CHARACTERS:
                 return DocumentQueryResult("not_found", mode, query, None, ())
-            # Quoting the exact source passage is safer than generating a
-            # person, amount, date or polarity transformation from it.
+            chosen = [top]
+            total = len(top.segment.text)
+            if self._MULTIPART.search(query):
+                for hit in sorted(supported[1:], key=lambda item: item.segment.document_order):
+                    if (len(chosen) >= 3 or not self._related_excerpt(top, hit)
+                            or total + len(hit.segment.text) + 1 > self.MAX_ANSWER_CHARACTERS):
+                        continue
+                    chosen.append(hit)
+                    total += len(hit.segment.text) + 1
+                chosen.sort(key=lambda item: item.segment.document_order)
             return DocumentQueryResult(
-                "found", mode, query, top.segment.text,
-                (self._source_evidence(top),),
+                "found", mode, query,
+                "\n".join(hit.segment.text for hit in chosen),
+                tuple(self._source_evidence(hit) for hit in chosen),
             )
 
         budget = self._SUMMARY_BUDGETS[summary_length or "medium"]

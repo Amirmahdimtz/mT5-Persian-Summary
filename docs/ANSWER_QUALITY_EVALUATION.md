@@ -182,3 +182,22 @@ $report.metrics | Format-List
 ```
 
 Do not overwrite prior reports. This synthetic fixture is already a Development regression dataset, **not a blind/human-reviewed real-Persian holdout**. Production NO-GO remains.
+
+
+## v4 user-run Development regression after confirmed checkout (2026-11-04)
+
+The user ran `git pull --ff-only origin main`, then `git rev-parse HEAD` printed `3163a66140ec1ab78ec64facd9c3adf8d3f0bc48` (a docs-only descendant of the `158315e` validator fix), and subsequently executed the loopback 34-case benchmark to a fresh `local_answer_quality_eval_v4.json`.
+
+| Measure | User-reported v4 |
+| --- | --- |
+| Evaluated cases / invalid responses | **34 / 0** |
+| Reported statuses | **18 found / 12 not_found / 4 ambiguous** |
+| Answer Correctness | **18/18 = 100%** |
+| False Positive Rate | **0/16 = 0%** |
+| Abstention Accuracy | **16/16 = 100%** |
+| Answer Completeness | **21/21 = 100%** |
+| Found Question Success | **18/18 = 100%** |
+
+Earlier post-patch Windows tests independently showed **575 passed / zero failed** and both targeted regressions passed. The v4 command chronology resolves the earlier *checkout* ordering ambiguity, but **a client-side HEAD is not server-side code provenance**, and the current message does not explicitly prove the server was restarted from that commit; record these as observed localhost service metrics, not independently attested runtime build or a new test run. The fixture is synthetic and public and was used in remediation, so the perfect score is a development regression result, not independent Persian semantic accuracy.
+
+**Production remains NO-GO** pending real authorized Persian documents, independently human-reviewed factual and citation labels, frozen Stage 10 mT5 summarization quality gates, and separate operational/security/release approvals. No raw local v4 JSON, private data or answer keys were added to Git.

@@ -442,3 +442,27 @@ def test_pdf_page_local_conflict_uses_original_location():
     assert DocumentAnswerValidator.conflicting_claim_evidence(
         query, (first,), (first, other_page)
     ) == ()
+
+
+def test_approved_credit_four_digit_amount_in_docx_is_not_a_year():
+    source = _docx(("[C01] اعتبار طرح خدمات شهری", [
+        "جلسه بررسی طرح ارتقای شبکه شهری در ۳ اردیبهشت ۱۴۰۵ برگزار شد.",
+        "اعتبار مصوب طرح ارتقای شبکه شهری برابر ۱۳۵۰ میلیون تومان تعیین شد.",
+    ]))
+    result = asyncio.run(_service().query_file_async(
+        source, "funding.docx",
+        "اعتبار مصوب طرح ارتقای شبکه شهری چقدر تعیین شد؟",
+    ))
+    assert result.status == "found", result
+    assert "۱۳۵۰ میلیون تومان" in result.answer
+    assert "جلسه" not in result.answer
+    assert result.answer == "\n".join(item.text for item in result.evidence)
+
+
+def test_approved_credit_requires_money_not_just_a_fiscal_year():
+    result = _ask(
+        "گزارش اعتبار مصوب طرح نگهداری پل در سال ۱۳۵۰ تهیه شد.",
+        "اعتبار مصوب طرح نگهداری پل چقدر بود؟",
+    )
+    assert result.status == "not_found", result
+    assert result.answer is None

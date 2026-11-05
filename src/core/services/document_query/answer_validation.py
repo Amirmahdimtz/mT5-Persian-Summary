@@ -310,7 +310,15 @@ class DocumentAnswerValidator:
             spelled = set(normalized) & {
                 "یک", "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "نه", "ده", "نیم",
             }
-            if not actual and not spelled and not cls._CONDITION_FACT.search(text):
+            # A four-digit monetary figure (e.g. ۱۳۵۰ میلیون تومان) is not
+            # a calendar year when its source explicitly states approved credit.
+            approved_credit_amount = bool(
+                re.search(r"اعتبار\s+مصوب", query)
+                and cls._MONEY_CLAIM.search(text)
+            )
+            if (not actual and not spelled
+                    and not cls._CONDITION_FACT.search(text)
+                    and not approved_credit_amount):
                 return False
         if re.search(r"(?:دو|سه)\s+(?:تهدید|عامل)", query):
             if (not re.search(r"تهدید|خطا|عامل|سوگیری", text)

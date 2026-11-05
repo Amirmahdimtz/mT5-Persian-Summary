@@ -290,3 +290,27 @@ The user verified checkout `69bdbfcf91ab357121a47e952d43e63b35e71c6f`, ran packa
 **P09 caveat:** The synthetic answer-key quote contains `باغ‌ها`, whereas text extracted from its generated PDF contains `باغها`. In the current local evaluator, ZWNJ becomes a space, so normalized quote `باغ ها` cannot match normalized source `باغها`. This **plausibly explains** the remaining unsupported-conflict-evidence flag, but the actual two response evidence excerpts must still be inspected. The frozen local benchmark remains unmodified and the scorer must not be weakened merely to improve the published regression score.
 
 The post-patch focused/full pytest and next 160-case HTTP run have **not** been executed by the assistant. The last reported v2 metrics are pre-repair measurements, not a new assertion. **Production NO-GO** remains.
+
+
+## Final user-host v4 160-case Development regression and P09 evaluator qualification (2026-11-05)
+
+**Checked-out code and fresh process:** The user confirmed `git rev-parse HEAD = 52be570fc3e48447ae58f4396cbad04b8618a3bb`, started new Development Uvicorn PID 19168 on `127.0.0.1:8001`, and ran the frozen assistant-authored, synthetic 30-document/160-question TXT/DOCX/PDF pack (same contents as v1–v3).
+
+**Windows pytest after this fix:** `tests/test_answer_validation.py` **48/48 passed**; full suite **588 passed, zero failed, two third-party deprecation warnings**; compileall and pip check passed.
+
+| Report metric | v1 initial | v4 after restarted server |
+| --- | ---: | ---: |
+| Predicted status distribution | 127 found / 31 not_found / 2 ambiguous | **120 found / 30 not_found / 10 ambiguous** |
+| Full Answer Success (reference found) | 118/120 (98.33%) | **120/120 (100%)** |
+| Answer Correctness (returned found) | 118/127 (92.91%) | **120/120 (100%)** |
+| False Positive Rate (reference abstain) | 8/40 (20%) | **0/40 (0%)** |
+| Abstention Accuracy (strict citation scorer) | 32/40 (80%) | **39/40 (97.5%)** |
+| Atom Completeness | 118/120 (98.33%) | **120/120 (100%)** |
+| Exact Source Grounding (returned found) | 127/127 (100%) | **120/120 (100%)** |
+| Invalid Responses | 0 | **0** |
+
+**Case D04-Q03 resolved:** The live response to the DOCX question returned `found` with the requested explicit `۱۳۵۰ میلیون تومان` and verbatim evidence at DOCX paragraph 7. An earlier unchanged v3 HTTP result had not shown the effect of the fix because the running server had not been restarted; v4 does.
+
+**Case P09-Q06 explained, not a system wrong-answer:** The new live response returned `ambiguous`, `answer=null`, and both original PDF page-1 evidence excerpts with `۱۱ آبان ۱۴۰۴` and `۱۳ آبان ۱۴۰۴`. The source quote says `باغها` whereas the exact reference quote says `باغ‌ها`. The local evaluator's `normalize` replaces U+200C with a literal space; resulting `باغها` and `باغ ها` remain different, so the quoted-reference substring check marks `conflict_evidence_supported=false`. This was verified with the local evaluator implementation and synthetic answer-key strings, and the actual returned two source excerpts were supplied by the user. **Do not retroactively relabel strict evaluator `39/40` as `40/40`**, change the frozen answer key or rewrite old reports. Separate analyst judgment: observed evidence is semantically contradictory and source-located. This analyst judgment is not an independent real-world human quality review.
+
+**Scope limitations:** These are **published synthetic Development regression results**, now exposed and used during targeted fixes, not an unseen evaluation or representative Persian production correctness score. The v4 report was retained only on the user's host. No further API, PDF parser, benchmark fixture, scoring code or model change is warranted by this result. Real authorized Persian document/independent human validation, Stage 10 mT5 summarization quality, security and operations approval remain required; **Production NO-GO**.
